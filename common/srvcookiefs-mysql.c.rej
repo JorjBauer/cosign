@@ -1,0 +1,31 @@
+***************
+*** 189,202 ****
+      return ( -1 );
+    }
+  
+-   if (! mysql_real_connect( l_sql,
+- 			    NULL, // server name. NULL == localhost
+- 			    "cosign", // user
+- 			    "cosign", // pass
+- 			    "cosign", // database ame
+- 			    0,          // port (0=default)
+- 			    NULL,       // unix socket (NULL=default)
+- 			    0 ) ) {     // client flags (0=default)
+      syslog( LOG_ERR, "Unable to connect to database server" );
+      return ( -1 );
+    }
+--- 199,212 ----
+      return ( -1 );
+    }
+  
++   if (! (l_sock = mysql_real_connect( l_sql,
++ 				      NULL, // server name. NULL == localhost
++ 				      "cosign", // user
++ 				      "cosign", // pass
++ 				      "cosign", // database ame
++ 				      0,          // port (0=default)
++ 				      NULL,       // unix socket (NULL=default)
++ 				      0 ) ) ) {     // client flags (0=default)
+      syslog( LOG_ERR, "Unable to connect to database server" );
+      return ( -1 );
+    }
