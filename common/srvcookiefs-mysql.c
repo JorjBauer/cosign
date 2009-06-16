@@ -550,7 +550,6 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
 	  ci->ci_ipaddr, ci->ci_ipaddr_cur, ci->ci_user,
 	  ci->ci_ctime, ci->ci_krbtkt, cookie );
 
-  syslog(LOG_ERR, "login: performing '%s'", query);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR,
