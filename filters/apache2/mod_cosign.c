@@ -17,6 +17,7 @@
 #include <string.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #ifdef KRB
 #ifdef GSS

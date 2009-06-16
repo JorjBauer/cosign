@@ -21,8 +21,8 @@
 #include "argcargv.h"
 #include "rate.h"
 #include "monster.h"
-#include "cparse.h"
 #include "mkcookie.h"
+#include "srvcookiefs.h"
 
 extern char		*cosign_version;
 extern char		*replhost;
@@ -495,13 +495,13 @@ pusher( int cpipe, struct connlist *cur )
         goto error;
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], path, sizeof( path )) < 0 ) {
-	syslog( LOG_ERR, "pusher: mkcookiepath error: %s", av[ 1 ] );
-        goto error;
+    if ( cookiefs_init( NULL, hashlen ) ) {
+      syslog( LOG_ERR, "pusher: cookiefs_init error" );
+      goto error;
     }
 
-    if (( rc = read_cookie( path, &ci )) != 0 ) {
-	syslog( LOG_ERR, "pusher: read_cookie error: %s", path );
+    if (( rc = cookiefs_read( av[ 1 ], &ci )) != 0 ) {
+	syslog( LOG_ERR, "pusher: cookiefs_read error: %s", path );
 	continue;
     }
 
@@ -558,6 +558,7 @@ pusher( int cpipe, struct connlist *cur )
         } else {
             syslog( LOG_ERR, "pusher: login %s failed: %m\n", av[ 1 ] );
         }
+	cookiefs_destroy();
 	exit( 1 );
     }
 
@@ -567,6 +568,7 @@ done:
 	if (( close_sn( cur )) != 0 ) {
 	    syslog( LOG_ERR, "pusher: done: close_sn: %m" );
 	}
+	cookiefs_destroy();
 	exit( 1 );
     }
 	}
@@ -575,5 +577,6 @@ error:
     if (( close_sn( cur )) != 0 ) {
 	syslog( LOG_ERR, "pusher: error: close_sn: %m" );
     }
+    cookiefs_destroy();
     exit( 1 );
 }

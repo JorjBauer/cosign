@@ -44,6 +44,18 @@ struct factorlist {
     struct factorlist	*fl_next;
 };
 
+struct idlelist {
+    char		*il_factor;
+    unsigned int	il_timeout;
+    struct idlelist	*il_next;
+};
+
+struct privatizationlist {
+    char		*pl_factor;
+    char		*pl_regexp;
+    struct privatizationlist	*pl_next;
+};
+
 struct proxies {
     char		*pr_hostname;
     char		*pr_cookie;

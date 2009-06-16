@@ -31,6 +31,7 @@ struct reg_param
     char	*rp_cookie;
     char	*rp_ip;
     char	*rp_scookie;
+    char        *rp_factors;
 };
 
 struct check_param
@@ -42,6 +43,6 @@ struct check_param
 
 int cosign_login( struct connlist *, char *, char *, char *, char *, char * );
 int cosign_logout( struct connlist *, char *, char * );
-int cosign_register( struct connlist *, char *, char *, char * );
+int cosign_register( struct connlist *, char *, char *, char *, char * );
 int cosign_check( struct connlist *, char *, struct userinfo * );
 int ssl_setup(char *, char *, char * );

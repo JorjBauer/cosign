@@ -21,24 +21,24 @@ FRIEND_MYSQL_PASSWD = @frienddbpasswd@
 
 COSIGNSYSLOG=LOG_DAEMON
 
-INCPATH=        @CPPFLAGS@ -I../common -I../libsnet 
+INCPATH=        @CPPFLAGS@ -I../common -I../libsnet -I/usr/include/mysql -I/sw/include/mysql
 OPTOPTS=        @OPTOPTS@ @UNIVERSAL_OPTOPTS@
 CC=             @CC@
 DEFS=           @TLSDEFS@ -D_COSIGN_TICKET_CACHE=\"${COSIGNTICKETCACHE}\"
-LIBS=           -lsnet @LIBS@
-LDFLAGS=        -L../libsnet/.libs @LDFLAGS@ ${LIBS}
+LIBS=           -lsnet -lmysqlclient @LIBS@
+LDFLAGS=        -L../libsnet/.libs -L/sw/lib @LDFLAGS@ ${LIBS}
 INSTALL=        @INSTALL@
 
 CFLAGS=         ${DEFS} ${OPTOPTS} @CFLAGS@ ${INCPATH}
 
 ################ Nothing below should need editing ###################
 
-SRC= daemon.c command.c cparse.c logname.c pusher.c mnet.c
-MONSTER = monster.c cparse.c logname.c mnet.c
-MOBJ = monster.o cparse.o logname.o mnet.o ../common/argcargv.o \
+SRC= daemon.c command.c logname.c pusher.c mnet.c
+MONSTER = monster.c logname.c mnet.c
+MOBJ = monster.o ../common/srvcookiefs-mysql.o logname.o mnet.o ../common/argcargv.o \
 	../common/config.o  ../common/fbase64.o ../common/mkcookie.o \
 	../common/wildcard.o ../version.o
-COSIGNOBJ= daemon.o command.o cparse.o logname.o \
+COSIGNOBJ= daemon.o command.o ../common/srvcookiefs-mysql.o logname.o \
 	pusher.o mnet.o ../common/argcargv.o ../common/fbase64.o \
 	../common/config.o ../common/mkcookie.o ../common/rate.o \
 	../common/wildcard.o ../version.o

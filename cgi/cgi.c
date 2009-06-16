@@ -25,13 +25,20 @@
 #include "factor.h"
 #include "mkcookie.h"
 
+#define jdebug(x, y...) { FILE *f=fopen("/tmp/jorj.debug", "a");fprintf(f, x, ## y); fclose(f); }
 #define SERVICE_MENU	"/services/"
 #define LOOPWINDOW      30 
 #define MAXLOOPCOUNT	10	
 #define MAXCOOKIETIME	86400	 /* Valid life of session cookie: 24 hours */
 
+#define kUNSATISFIED     0
+#define kSATISFIED       1
+#define kSUBSTITUTED_FWD 2
+#define kSUBSTITUTED_REV 3
+
 extern char	*cosign_version;
 extern char	*suffix;
+extern char	*parasitic_suffix;
 extern struct factorlist	*factorlist;
 unsigned short	cosign_port;
 char		*cosign_host = _COSIGN_HOST;
@@ -89,6 +96,27 @@ static struct subfile_list sl[] = {
         { 'd', SUBF_STR_ESC, NULL },
         { '\0', 0, NULL },
 };
+
+/* 'in' is comma-separated; 'out' is space-separted. */
+    static int
+implode_factors( const char *in, char *out, int out_length )
+{
+    if ( in == NULL || out == NULL || out_length <= 0 ) {
+	return( 0 );
+    }
+
+    out[0] = '\0';
+
+    char *p = out;
+    strncpy( out, in, out_length );
+    while ( *p ) {
+	if ( *p == ',' ) {
+	    *p = ' ';
+	}
+	p++;
+    }
+    return ( strlen( out ) == strlen( in ) );
+}
 
     static void
 loop_checker( int time, int count, char *cookie )
@@ -219,7 +247,7 @@ match_factor( char *required, char *satisfied, char *suffix )
     int		rc;
 
     if ( strcmp( required, satisfied ) == 0 ) {
-	return( 1 );
+	return( kSATISFIED );
     }
     if ( suffix != NULL ) {
 	if (( p = strstr( satisfied, suffix )) != NULL ) {
@@ -228,12 +256,22 @@ match_factor( char *required, char *satisfied, char *suffix )
 		rc = strcmp( required, satisfied );
 		*p = *suffix;
 		if ( rc == 0 ) {
-		    return( 1 );
+		    return( kSUBSTITUTED_FWD );
+		}
+	    }
+	}
+	if (( p = strstr( required, suffix )) != NULL ) {
+	    if (( strlen( p )) == ( strlen( suffix ))) {
+		*p = '\0';
+		rc = strcmp( required, satisfied );
+		*p = *suffix;
+		if ( rc == 0 ) {
+		    return( kSUBSTITUTED_REV );
 		}
 	    }
 	}
     }
-    return( 0 );
+    return( kUNSATISFIED );
 }
 
     static int
@@ -282,6 +320,9 @@ main( int argc, char *argv[] )
     regmatch_t			matches[ 2 ];
     int				nmatch = 2;
     CGIHANDLE			*cgi;
+    char                        imploded_factors[ 1024 ];
+    char			*subst_factor = NULL;
+    int				req_more_auth;
 
     if ( argc == 2 ) {
 	if ( strcmp( argv[ 1 ], "-V" ) == 0 ) {
@@ -569,11 +610,38 @@ main( int argc, char *argv[] )
 	    require = strdup( factor );
 	    for ( r = strtok_r( require, ",", &reqp ); r != NULL;
 		    r = strtok_r( NULL, ",", &reqp )) {
+		req_more_auth = 0;
 		for ( i = 0; ui.ui_factors[ i ] != NULL; i++ ) {
 		    if ( match_factor( r, ui.ui_factors[ i ], suffix )) {
+			req_more_auth = 0;
+			break;
+		    }
+
+		    switch ( match_factor( r,
+					   ui.ui_factors[ i ],
+					   parasitic_suffix )) {
+		    case kSATISFIED:
+			req_more_auth = 0;
+			goto outer;
+		    case kSUBSTITUTED_REV:
+			/* This is a dependent (parasitic) factor. Reauth 
+			 * the factor that it's dependent on. */
+			req_more_auth = 1;
 			break;
 		    }
 		}
+	    outer:
+		if ( req_more_auth ) {
+		    /* While looping through factor matches above, we want 
+		     * absolute matches to supercede substitution matches. 
+		     * If we got through the list with a substitution match
+		     * that requires more authentication, then we'll 
+		     * wind up here and force that reauth. */
+		    sl[ SL_ERROR ].sl_data = "Additional authentication"
+			" is required.";
+		    goto loginscreen;
+		}
+
 		if ( ui.ui_factors[ i ] == NULL ) {
 		    break;
 		}
@@ -585,6 +653,7 @@ main( int argc, char *argv[] )
 	    }
 	}
 
+	imploded_factors[ 0 ] = '\0';
 	if ( scheme == 3 ) {
 	    /* cosign3 scheme, must generate new service cookie */
 	    if ( mkscookie( service, new_scookie,
@@ -597,9 +666,21 @@ main( int argc, char *argv[] )
 		exit( 0 );
 	    }
 	    service = new_scookie;
+
+	    /* Generate an imploded required-factor list. */
+	    if ( factor != NULL ) {
+		if ( implode_factors( factor, imploded_factors, sizeof(imploded_factors) ) == 0 ) {
+		    fprintf( stderr, "%s: implode_factors failed\n", script );
+		    sl[ SL_TITLE ].sl_data = "Error: implode_factors Failed";
+		    sl[ SL_ERROR ].sl_data = "We were unable to create a service "
+			"factor list. Please try again later.";
+		    subfile( ERROR_HTML, sl, 0 );
+		    exit( 0 );
+		}
+	    }
 	}
 
-	if (( rc = cosign_register( head, cookie, ip_addr, service )) < 0 ) {
+	if (( rc = cosign_register( head, cookie, ip_addr, service, imploded_factors)) < 0 ) {
 	    fprintf( stderr, "%s: cosign_register failed\n", script );
 	    sl[ SL_TITLE ].sl_data = "Error: Register Failed";
 	    sl[ SL_ERROR ].sl_data = "We were unable to contact "
@@ -761,6 +842,36 @@ main( int argc, char *argv[] )
 	goto loginscreen;
 
 loggedin:
+	/* If we just received any new factors, and they match any of our 
+	 * suffix factors, then we want to do proxy login for those creds
+	 * as well. This grants "real" factors for parasitic factors... */
+	for ( i=0; new_factors[ i ] != NULL; i++ ) {
+	    for ( subst_factor = strtok( sl[ SL_RFACTOR ].sl_data, ",");
+		      subst_factor;
+		      subst_factor = strtok( NULL, "," ) ) {
+		switch ( match_factor( subst_factor, 
+				       new_factors[ i ],
+				       parasitic_suffix ) ) {
+		case kSUBSTITUTED_REV:
+		    if ( cosign_login( head,
+				       cookie,
+				       ip_addr, 
+				       login,
+				       subst_factor,
+				       NULL ) < 0 ) {
+			sl[ SL_TITLE ].sl_data = "Error: Please try later";
+			sl[ SL_ERROR ].sl_data = "We were unable to "
+			    "contact the authentication server. Please "
+			    "try again later.";
+			subfile( ERROR_HTML, sl, 0 );
+			exit( 0 );
+
+		 /* We deliberately ignore kSUBSTITUTED_FWD and kSATISFIED. */
+		    }
+		}
+	    }
+	}
+
 	(void)cosign_check( head, cookie, &ui );
     }
 #endif /* SQL_FRIEND || KRB */
@@ -888,11 +999,30 @@ loggedin:
 	if ( scookie->sl_flag & SL_REAUTH ) {
 	    for ( i = 0; scookie->sl_factors[ i ] != NULL; i++ ) {
 		for ( j = 0; new_factors[ j ] != NULL; j++ ) {
-		    if ( match_factor( scookie->sl_factors[ i ],
+		    switch ( match_factor( scookie->sl_factors[ i ],
 			    new_factors[ j ], suffix )) {
-			break;
+		    case kSATISFIED:
+			goto outer2;
+		    case kSUBSTITUTED_FWD:
+			/* Grant the actual factor. */
+			if ( cosign_login( head,
+					   cookie,
+					   ip_addr, 
+					   login,
+					   scookie->sl_factors[ i ],
+					   NULL ) < 0 ) {
+			    sl[ SL_TITLE ].sl_data = "Error: Please try later";
+			    sl[ SL_ERROR ].sl_data = "We were unable to "
+				"contact the authentication server. Please "
+				"try again later.";
+			    subfile( ERROR_HTML, sl, 0 );
+			    exit( 0 );
+			}
+			goto outer2;
+		    /* deliberately ignoring kSUBSTITUTED_REV. */
 		    }
 		}
+	    outer2:
 		if ( new_factors[ j ] == NULL ) {
 		    sl[ SL_ERROR ].sl_data = "Please complete"
 			    " all required fields to re-authenticate.";
@@ -905,6 +1035,7 @@ loggedin:
 	    goto loginscreen;
 	}
 
+	imploded_factors[ 0 ] = '\0';
 	if ( scheme == 3 ) {
 	    /* cosign3 scheme, must generate new service cookie */
 	    if ( mkscookie( service, new_scookie,
@@ -916,10 +1047,20 @@ loggedin:
 		subfile( ERROR_HTML, sl, 0 );
 		exit( 0 );
 	    }
+
+	    if ( implode_factors( sl[ SL_RFACTOR ].sl_data, imploded_factors, sizeof(imploded_factors) ) == 0 ) {
+		fprintf( stderr, "%s: implode_scookie_factors failed\n", script );
+		sl[ SL_TITLE ].sl_data = "Error: Implode SCookie Factors Failed";
+		sl[ SL_ERROR ].sl_data = "We were unable to create a service "
+		    "factor list. Please try again later.";
+		subfile( ERROR_HTML, sl, 0 );
+		exit( 0 );
+
+	    }
 	    service = new_scookie;
 	}
 
-        if (( rc = cosign_register( head, cookie, ip_addr, service )) < 0 ) {
+        if (( rc = cosign_register( head, cookie, ip_addr, service, imploded_factors )) < 0 ) {
             fprintf( stderr, "%s: implicit cosign_register failed\n", script );
             sl[ SL_TITLE ].sl_data = "Error: Implicit Register Failed";
             sl[ SL_ERROR ].sl_data = "We were unable to contact the "

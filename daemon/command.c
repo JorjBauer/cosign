@@ -30,11 +30,11 @@
 
 #include "command.h"
 #include "config.h"
-#include "cparse.h"
 #include "mkcookie.h"
 #include "rate.h"
 #include "argcargv.h"
 #include "wildcard.h"
+#include "srvcookiefs.h"
 
 #ifndef MIN
 #define MIN(a,b)        ((a)<(b)?(a):(b))
@@ -47,7 +47,8 @@ extern int			strict_checks;
 extern struct timeval		cosign_net_timeout;
 extern struct sockaddr_in	cosign_sin;
 extern char			*cosign_tickets;
-
+extern struct idlelist          *idlelist;
+extern struct privatizationlist *privatizationlist;
 
 static int	f_noop( SNET *, int, char *[], SNET * );
 static int	f_quit( SNET *, int, char *[], SNET * );
@@ -62,7 +63,6 @@ static int	f_time( SNET *, int, char *[], SNET * );
 static int	f_daemon( SNET *, int, char *[], SNET * );
 static int	f_starttls( SNET *, int, char *[], SNET * );
 
-static int	do_register( char *, char *, char * );
 static int	retr_ticket( SNET *, struct servicelist *, char * );
 static int	retr_proxy( SNET *, char *, SNET * );
 
@@ -112,6 +112,43 @@ char	*remote_cn = NULL;
 int	replicated = 0; /* we are not talking to ourselves */
 int	protocol = 0; 
 int	ncommands = sizeof( unauth_commands ) / sizeof(unauth_commands[ 0 ] );
+
+    static int
+remove_imploded_element( char *in, int sz, char *to_remove )
+{
+  char *buf = malloc( sz );
+  char *obuf = buf;
+  int len;
+  char *tok = NULL;
+
+  if ( buf == NULL ) {
+    perror( "malloc" );
+    return( -1 );
+  }
+  char *p;
+
+  for ( p = strtok_r( in, " ", &tok );
+	p != NULL;
+	p = strtok_r( NULL, " ", &tok ) ) {
+    if ( strcmp( p, to_remove ) ) {
+      /* Add it to the output list (with a leading space if we've already added
+       * something to the output list) */
+      len = snprintf( buf, sz, "%s%s", obuf == buf ? "" : " ", p );
+      if ( len >= sz ) {
+	free( buf );
+	syslog( LOG_ERR, 
+		"remove_imploded_element: insufficient buffer space" );
+	return( -1 );
+      }
+      buf += len;
+      sz -= len;
+    }
+  }
+
+  strcpy( in, obuf );
+  free( obuf );
+  return( 0 );
+}
 
     int
 f_quit( SNET *sn, int ac, char *av[], SNET *pushersn )
@@ -209,17 +246,15 @@ f_starttls( SNET *sn, int ac, char *av[], SNET *pushersn )
     int
 f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
-    FILE		*tmpfile;
     ACAV		*facav;
-    char		tmppath[ MAXCOOKIELEN ], path[ MAXPATHLEN ];
     char		tmpkrb[ 16 ], krbpath [ MAXPATHLEN ];
-    char                *sizebuf, *line;
+    char                *sizebuf, *line, *realm_ptr;
     char                buf[ 8192 ];
     char		**fv;
-    int			fd, i, j, fc, already_krb = 0;
-    int			krb = 0, err = 1, addinfo = 0, newinfo = 0;
+    int			err, fd, i, j, fc, already_krb = 0;
+    int			krb = 0, addinfo = 0, newinfo = 0;
     struct timeval	tv;
-    struct cinfo	ci;
+    struct cinfo	old_ci, new_ci;
     unsigned int        len, rc;
     extern int		errno;
 
@@ -265,97 +300,70 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], path, sizeof( path )) < 0 ) {
-	syslog( LOG_ERR, "f_login: mkcookiepath error" );
-	snet_writef( sn, "%d LOGIN: Invalid cookie path.\r\n", 501 );
-	return( 1 );
-    }
-
-    if ( read_cookie( path, &ci ) == 0 ) {
+    if ( cookiefs_read( av[ 1 ], &old_ci ) == 0 ) {
 	addinfo = 1;
-	if ( ci.ci_state == 0 ) {
+	if ( old_ci.ci_state == 0 ) {
 	    syslog( LOG_ERR,
 		    "f_login: %s already logged out", av[ 1 ] );
 	    snet_writef( sn, "%d LOGIN: Already logged out\r\n", 505 );
 	    return( 1 );
 	}
-	if ( strcmp( av[ 3 ], ci.ci_user ) != 0 ) {
+	if ( strcmp( av[ 3 ], old_ci.ci_user ) != 0 ) {
 	    syslog( LOG_ERR, "%s in cookie %s does not match %s",
-		    ci.ci_user, av[ 1 ], av[ 3 ] );
+		    old_ci.ci_user, av[ 1 ], av[ 3 ] );
 	    snet_writef( sn,
 		"%d user name given does not match cookie\r\n", 402 );
 	    return( 1 );
 	}
     }
 
-    if ( gettimeofday( &tv, NULL ) != 0 ) {
-	syslog( LOG_ERR, "f_login: gettimeofday: %m" );
-	return( -1 );
+    /* Create new_ci and write it to disk. */
+    memset( &new_ci, 0, sizeof( new_ci ) );
+    new_ci.ci_version = 2;
+    if ( strlen( av[ 2 ] ) >= sizeof( new_ci.ci_ipaddr ) ||
+	 strlen( av[ 2 ] ) >= sizeof( new_ci.ci_ipaddr_cur ) ) {
+	syslog( LOG_ERR, "f_login: bad file format" );
+	snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
+	return( 1 );
+    }
+    if ( strlen( av[ 3 ] ) >= sizeof( new_ci.ci_user ) ) {
+	syslog( LOG_ERR, "f_login: bad file format" );
+	snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
+	return( 1 );
+    } if ( strlen( av[ 4 ] ) >= sizeof( new_ci.ci_realm ) ) {
+	syslog( LOG_ERR, "f_login: bad file format" );
+	snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
+	return( 1 );
     }
 
-    if ( snprintf( tmppath, sizeof( tmppath ), "%x%x.%i",
-	    (int)tv.tv_sec, (int)tv.tv_usec, (int)getpid()) >=
-	    sizeof( tmppath )) {
-	syslog( LOG_ERR, "f_login: tmppath too long" );
-	return( -1 );
-    }
-
-    if (( fd = open( tmppath, O_CREAT|O_EXCL|O_WRONLY, 0644 )) < 0 ) {
-	syslog( LOG_ERR, "f_login: open: %s: %m", tmppath );
-	return( -1 );
-    }
-
-    if (( tmpfile = fdopen( fd, "w" )) == NULL ) {
-	/* close */
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "f_login: unlink: %m" );
-	}
-	syslog( LOG_ERR, "f_login: fdopen: %m" );
-	return( -1 );
-    }
-
-    fprintf( tmpfile, "v2\n" );
-    fprintf( tmpfile, "s1\n" );	 /* 1 is logged in, 0 is logged out */
-
-    if ( strlen( av[ 2 ] ) >= sizeof( ci.ci_ipaddr )) {
-	goto file_err;
-    }
     if ( addinfo ) {
-	fprintf( tmpfile, "i%s\n", ci.ci_ipaddr );
+	strncpy( new_ci.ci_ipaddr, old_ci.ci_ipaddr, sizeof(new_ci.ci_ipaddr) );
     } else {
-	fprintf( tmpfile, "i%s\n", av[ 2 ] );
+	strncpy( new_ci.ci_ipaddr, av[ 2 ], sizeof(new_ci.ci_ipaddr) );
     }
 
     if ( addinfo ) {
-	if ( strcmp( ci.ci_ipaddr_cur, av[ 2 ] ) != 0 ) {
+	if ( strcmp( old_ci.ci_ipaddr_cur, av[ 2 ] ) != 0 ) {
 	    newinfo = 1;
 	}
     }
-    if ( strlen( av[ 2 ] ) >= sizeof( ci.ci_ipaddr_cur )) {
-	goto file_err;
-    }
-    fprintf( tmpfile, "j%s\n", av[ 2 ] );
 
-    if ( strlen( av[ 3 ] ) >= sizeof( ci.ci_user )) {
-	goto file_err;
-    }
-    fprintf( tmpfile, "p%s\n", av[ 3 ] );
-    if ( strlen( av[ 4 ] ) >= sizeof( ci.ci_realm )) {
-	goto file_err;
-    }
+    strncpy( new_ci.ci_ipaddr_cur, av[ 2 ], sizeof(new_ci.ci_ipaddr_cur) );
+    strncpy( new_ci.ci_user, av[ 3 ], sizeof(new_ci.ci_user) );
 
     if ( addinfo ) {
 	if (( facav = acav_alloc()) == NULL ) {
 	    syslog( LOG_ERR, "acav_alloc: %m" );
-	    goto file_err;
+	    return( 1 );
 	}
-	if (( fc = acav_parse( facav, ci.ci_realm, &fv )) < 0 ) {
+	if (( fc = acav_parse( facav, old_ci.ci_realm, &fv )) < 0 ) {
 	    syslog( LOG_ERR, "acav_parse: %m" );
-	    goto file_err;
+	    return( 1 );
 	}
-	fprintf( tmpfile, "r%s", fv[ 0 ] );
-	for ( i = 1; i < fc; i++ ) {
-	    fprintf( tmpfile, " %s", fv[ i ] );
+	realm_ptr = new_ci.ci_realm;
+	realm_ptr += sprintf( realm_ptr, "%s", fv[ 0 ] );
+	for( i = 1; i < fc; i++ ) {
+	    realm_ptr += sprintf( realm_ptr, " %s", fv[ i ] );
 	}
 	for ( i = 4; i < ac; i++ ) {
 	    for ( j = 0; j < fc; j++ ) {
@@ -364,79 +372,57 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 		}
 	    }
 	    if ( j >= fc ) {
-		fprintf( tmpfile, " %s", av[ i ] );
+		realm_ptr += sprintf( realm_ptr, " %s", av[ i ] );
 		newinfo = 1;
 	    }
 	}
 	if ( newinfo == 0 ) {
+	    /* Nothing new; nothing to write. All done. */
 	    snet_writef( sn, "%d LOGIN Cookie Already Stored.\r\n", 202 );
-	    if ( fclose ( tmpfile ) != 0 ) {
-		syslog( LOG_ERR, "f_login: fclose: %m" );
-	    }
-	    if ( unlink( tmppath ) != 0 ) {
-		syslog( LOG_ERR, "f_login: unlink %s: %m", tmppath );
-	    }
 	    return( 0 );
 	}
     } else {
-	fprintf( tmpfile, "r%s", av[ 4 ] );
+	realm_ptr = new_ci.ci_realm;
+	realm_ptr += sprintf( realm_ptr, "%s", av[ 4 ] );
 	for ( i = 5; i < ac; i++ ) {
-	    fprintf( tmpfile, " %s", av[ i ] );
+	    realm_ptr += sprintf( realm_ptr, " %s", av[ i ] );
 	}
     }
-    fprintf( tmpfile, "\n" );
 
     if ( addinfo ) {
-	fprintf( tmpfile, "t%lu\n", ci.ci_itime);
+	new_ci.ci_itime = old_ci.ci_itime;
     } else {
-	fprintf( tmpfile, "t%lu\n", tv.tv_sec );
+	new_ci.ci_itime = tv.tv_sec;
     }
 
     if ( krb ) {
-	if (( addinfo ) && ( *ci.ci_krbtkt != '\0' )) {
-	    fprintf( tmpfile, "k%s\n", ci.ci_krbtkt );
+	if (( addinfo ) && ( *old_ci.ci_krbtkt != '\0' )) {
+	    strncpy( new_ci.ci_krbtkt, old_ci.ci_krbtkt,
+		     sizeof(new_ci.ci_krbtkt) );
 	    already_krb = 1;
 	} else {
-	    fprintf( tmpfile, "k%s\n", krbpath );
+	    strncpy( new_ci.ci_krbtkt, krbpath, sizeof(new_ci.ci_krbtkt) );
 	}
-    } else if ( *ci.ci_krbtkt != '\0' ) {
-	fprintf( tmpfile, "k%s\n", ci.ci_krbtkt );
+    } else if ( *old_ci.ci_krbtkt != '\0' ) {
+	strncpy( new_ci.ci_krbtkt, old_ci.ci_krbtkt,
+		 sizeof(new_ci.ci_krbtkt) );
 	already_krb = 1;
     }
 
-    if ( fclose ( tmpfile ) != 0 ) {
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "f_login: unlink %s: %m", tmppath );
-	}
-	syslog( LOG_ERR, "f_login: fclose: %m" );
-	return( -1 );
-    }
-
-    if ( addinfo ) {
-	if ( rename( tmppath, path ) != 0 ) {
-	    syslog( LOG_ERR, "f_login: rename %s to %s: %m", tmppath, path );
-	    err = -1;
-	    goto file_err2;
-	}
-    } else {
-	if ( link( tmppath, path ) != 0 ) {
-	    syslog( LOG_ERR, "f_login: link %s to %s: %m", tmppath, path );
-	    err = -1;
-	    goto file_err2;
-	}
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "f_login: unlink %s: %m", tmppath );
-	}
+    if ( ( err = cookiefs_write_login( av[ 1 ], &new_ci ) ) != 0 ) {
+	syslog( LOG_ERR, "f_login: cookiefs_write_login failed: %d", err );
+	snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
+	return( err );
     }
 
     if (( !krb ) || ( already_krb )) {
 	snet_writef( sn, "%d LOGIN successful: Cookie Stored.\r\n", 200 );
 	if (( pushersn != NULL ) && ( !replicated )) {
 	    snet_writef( pushersn, "LOGIN %s %s %s %s\r\n",
-		    av[ 1 ], av[ 2 ], av[ 3 ], av[ 4 ]);
+			 av[ 1 ], av[ 2 ], av[ 3 ], av[ 4 ]);
 	}
 	if ( !replicated ) {
-	    syslog( LOG_INFO, "LOGIN %s %s %s", av[ 3 ], av [ 4 ], av [ 2 ] );
+	    syslog( LOG_INFO, "LOGIN %s %s %s", av[ 3 ], av[ 4 ], av[ 2 ] );
 	}
 	return( 0 );
     }
@@ -455,12 +441,14 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
     for ( len = atoi( sizebuf ); len > 0; len -= rc ) {
-        tv = cosign_net_timeout;
-        if (( rc = snet_read(
-                sn, buf, (int)MIN( len, sizeof( buf )), &tv )) <= 0 ) {
-            syslog( LOG_ERR, "f_login: snet_read: %m" );
-            return( -1 );
-        }
+	tv = cosign_net_timeout;
+	if (( rc = snet_read(sn,
+			     buf, 
+			     (int)MIN( len, sizeof( buf )),
+			     &tv )) <= 0 ) {
+	    syslog( LOG_ERR, "f_login: snet_read: %m" );
+	    return( -1 );
+	}
 
         if ( write( fd, buf, rc ) != rc ) {
 	    syslog( LOG_ERR, "f_login: write to %s: %m", krbpath );
@@ -517,21 +505,6 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	syslog( LOG_INFO, "LOGIN %s %s %s", av[ 3 ], av [ 4 ], av [ 2 ] );
     }
     return( 0 );
-
-file_err:
-    (void)fclose( tmpfile );
-    if ( unlink( tmppath ) != 0 ) {
-	syslog( LOG_ERR, "f_login: unlink: %m" );
-    }
-    syslog( LOG_ERR, "f_login: bad file format" );
-    snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
-    return( 1 );
-
-file_err2:
-    if ( unlink( tmppath ) != 0 ) {
-	syslog( LOG_ERR, "f_login: unlink: %m" );
-    }
-    return( err );
 }
 
     int
@@ -573,12 +546,9 @@ f_daemon( SNET *sn, int ac, char *av[], SNET *pushersn )
     int
 f_time( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
-    struct utimbuf	new_time;
-    struct stat		st;
     struct timeval	tv;
-    int			timestamp, state;
     int			total = 0, fail = 0;
-    char		*line, path[ MAXPATHLEN ];
+    char		*line;
 
     /* TIME */
     /* 3xx */
@@ -622,29 +592,12 @@ f_time( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    continue;
 	}
 
-	if ( mkcookiepath( NULL, hashlen, av[ 0 ], path, sizeof( path )) < 0 ) {
-	    syslog( LOG_ERR, "f_time: path name malformat" );
-	    continue;
-	}
-
 	total++;
-	if ( stat( path, &st ) != 0 ) {
+	if ( cookiefs_validate( av[ 0 ], atoi( av[ 1 ] ), 
+				atoi( av[ 2 ] ) ) < 0 ) {
 	    /* record a missing cookie here */
 	    fail++;
 	    continue;
-	}
-
-	timestamp = atoi( av[ 1 ] ); 
-	if ( timestamp > st.st_mtime ) {
-	    new_time.modtime = timestamp;
-	    utime( path, &new_time );
-	}
-
-	state = atoi( av[ 2 ] );
-	if (( state == 0 ) && (( st.st_mode & S_ISGID ) != 0 )) {
-	    if ( do_logout( path ) < 0 ) {
-		syslog( LOG_ERR, "f_time: %s should be logged out!", path );
-	    }
 	}
     }
 
@@ -677,13 +630,8 @@ f_logout( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], path, sizeof( path )) < 0 ) {
-	syslog( LOG_ERR, "f_login: mkcookiepath error" );
-	snet_writef( sn, "%d LOGIN: Invalid cookie path.\r\n", 511 );
-	return( 1 );
-    }
-
-    if ( read_cookie( path, &ci ) != 0 ) {
+    if ( cookiefs_read( av[ 1 ], &ci ) != 0 ) {
+	syslog( LOG_ERR, "f_logout: cookiefs_read" );
 	snet_writef( sn, "%d LOGOUT error: Sorry\r\n", 513 );
 	return( 1 );
     }
@@ -695,7 +643,7 @@ f_logout( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( do_logout( path ) < 0 ) {
+    if ( cookiefs_logout( av[ 1 ] ) < 0 ) {
 	syslog( LOG_ERR, "f_logout: %s: %m", path );
 	return( -1 );
     }
@@ -711,88 +659,14 @@ f_logout( SNET *sn, int ac, char *av[], SNET *pushersn )
 
 }
 
-/*
- * associate serivce with login
- * 0 = OK
- * -1 = unknown fatal error
- * 1 = already registered
- */
-    int
-do_register( char *login, char *login_p, char *scookie_p )
-{
-    int			fd, rc;
-    char		tmppath[ MAXCOOKIELEN ];
-    FILE		*tmpfile;
-    struct timeval	tv;
-
-    if ( gettimeofday( &tv, NULL ) != 0 ){
-	syslog( LOG_ERR, "do_register: gettimeofday: %m" );
-	return( -1 );
-    }
-
-    if ( snprintf( tmppath, sizeof( tmppath ), "%x%x.%i",
-	    (int)tv.tv_sec, (int)tv.tv_usec, (int)getpid()) >=
-	    sizeof( tmppath )) {
-	syslog( LOG_ERR, "do_register: tmppath too long" );
-	return( -1 );
-    }
-
-    if (( fd = open( tmppath, O_CREAT|O_EXCL|O_WRONLY, 0644 )) < 0 ) {
-	syslog( LOG_ERR, "do_register: open: %s: %m", tmppath );
-	return( -1 );
-    }
-
-    if (( tmpfile = fdopen( fd, "w" )) == NULL ) {
-	syslog( LOG_ERR, "do_register: fdopen: %m" );
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "do_register: unlink: %m" );
-	}
-	return( -1 );
-    }
-
-    /* the service cookie file contains the login cookie only */
-    fprintf( tmpfile, "l%s\n", login );
-
-    if ( fclose( tmpfile ) != 0 ) {
-	syslog( LOG_ERR, "do_register: fclose: %m" );
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "do_register: unlink: %m" );
-	}
-	return( -1 );
-    }
-
-    if ( link( tmppath, scookie_p ) != 0 ) {
-	if ( errno == EEXIST ) {
-	    rc = 1;
-	} else {
-	    syslog( LOG_ERR, "do_register: link: %m" );
-	    rc = -1;
-	}
-	if ( unlink( tmppath ) != 0 ) {
-	    syslog( LOG_ERR, "do_register: unlink: %m" );
-	}
-	return( rc );
-    }
-
-    if ( unlink( tmppath ) != 0 ) {
-	syslog( LOG_ERR, "do_register: unlink: %m" );
-	return( -1 );
-    }
-
-    utime( login_p, NULL );
-
-    return( 0 );
-}
-
     int
 f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
     struct cinfo	ci;
     struct timeval	tv;
     int			rc;
-    char		lpath[ MAXPATHLEN ], spath[ MAXPATHLEN ];
 
-    /* REGISTER login_cookie ip service_cookie */
+    /* REGISTER login_cookie ip service_cookie [factors] */
 
     if ( al->al_key != CGI ) {
 	syslog( LOG_ERR, "f_register: %s not allowed", al->al_hostname );
@@ -801,26 +675,15 @@ f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( ac != 4 ) {
+    if ( ac < 4 ) {
 	syslog( LOG_ERR, "f_register: %s wrong number of args.",
 		al->al_hostname );
 	snet_writef( sn, "%d REGISTER: Wrong number of args.\r\n", 520 );
 	return( 1 );
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], lpath, sizeof( lpath )) < 0 ) {
-	syslog( LOG_ERR, "f_register: mkcookiepath login cookie error" );
-	snet_writef( sn, "%d REGISTER: Invalid cookie path.\r\n", 521 );
-	return( 1 );
-    }
-
-    if ( mkcookiepath( NULL, hashlen, av[ 3 ], spath, sizeof( spath )) < 0 ) {
-	syslog( LOG_ERR, "f_register: mkcookiepath service cookie error" );
-	snet_writef( sn, "%d REGISTER: Invalid cookie path.\r\n", 522 );
-	return( 1 );
-    }
-
-    if ( read_cookie( lpath, &ci ) != 0 ) {
+    if ( cookiefs_read( av[ 1 ], &ci ) != 0 ) {
+	syslog( LOG_ERR, "f_register: unable to read cookie %s", av[ 1 ] );
 	snet_writef( sn, "%d REGISTER error: Sorry\r\n", 523 );
 	return( 1 );
     }
@@ -845,17 +708,25 @@ f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	snet_writef( sn, "%d REGISTER: Idle logged out\r\n", 422 );
-	if ( do_logout( lpath ) < 0 ) {
-	    syslog( LOG_ERR, "f_register: %s: %m", lpath );
+	if ( cookiefs_logout( av[ 1 ] ) < 0 ) {
+	    syslog( LOG_ERR, "f_register: %s: %m", av[ 1 ] );
 	    return( -1 );
 	}
 	return( 1 );
     }
 
-    if (( rc = do_register( av[ 1 ], lpath, spath )) < 0 ) {
-	return( -1 );
+    if ( ac == 4 ) {
+	/* Registrations that don't provide factor lists use this */
+	if ( ( rc = cookiefs_register( av[ 1 ], av[ 3 ], NULL, 0  ) ) < 0 ) {
+	    return( -1 );
+	}
+    } else {
+	/* Some factors were also provided; pass them along */
+	if ( ( rc = cookiefs_register( av[ 1 ], av[ 3 ], &av[ 4 ], ac - 4 ) ) < 0 ) {
+	    return( -1 );
+	}
     }
-
+ 
     /* double action policy?? */
     if ( rc > 0 ) {
 	snet_writef( sn,
@@ -952,13 +823,24 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
     struct cinfo 	ci;
     struct timeval	tv;
-    char		login[ MAXCOOKIELEN ], path[ MAXPATHLEN ];
+    char		login[ MAXCOOKIELEN ], lookup[ MAXCOOKIELEN ];
     char		*p;
-    int			status;
+    int			status, i;
     double		rate;
+    struct idlelist	*il;
+    int			did_il;
+    int			result;
+    char                allowed_factors[ 256 ];
+    char                *a_factor;
+    struct privatizationlist   *pl;
+    regex_t             preg;
+    char                buf[ 1024 ];
+    regmatch_t          svm[ 2 ];
+    int                 rc;
+    char                *tok;
 
     /*
-     * C: CHECK servicecookie
+     * C: CHECK servicecookie [FACTORLIST]
      * S: 231 ip principal realm
      */
 
@@ -974,17 +856,13 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( ac != 2 ) {
+    if ( ac < 2 ) {
 	syslog( LOG_ERR, "f_check: %s Wrong number of args.", al->al_hostname );
 	snet_writef( sn, "%d CHECK: Wrong number of args.\r\n", 530 );
 	return( 1 );
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], path, sizeof( path )) < 0 ) {
-	syslog( LOG_ERR, "f_check: mkcookiepath error." );
-	snet_writef( sn, "%d CHECK: Invalid cookie name.\r\n", 531 );
-	return( 1 );
-    }
+    strncpy( lookup, av[ 1 ], sizeof( lookup ) );
 
     if ( strncmp( av[ 1 ], "cosign-", 7 ) == 0 ) {
 	if ( strict_checks && service_valid( av[ 1 ] ) == NULL ) {
@@ -993,7 +871,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
 
 	status = 231;
-	if ( service_to_login( path, login ) != 0 ) {
+	if ( cookiefs_service_to_login( av[ 1 ], login ) != 0 ) {
 	    if (( rate = rate_tick( &checkunknown )) != 0.0 ) {
 		syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 			inet_ntoa( cosign_sin.sin_addr), rate );
@@ -1001,12 +879,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    snet_writef( sn, "%d CHECK: cookie not in db!\r\n", 533 );
 	    return( 1 );
 	}
-	if ( mkcookiepath( NULL, hashlen, login, path, sizeof( path )) < 0 ) {
-	    syslog( LOG_ERR, "f_check: mkcookiepath error." );
-	    snet_writef( sn, "%d CHECK: Invalid cookie name.\r\n", 532 );
+	strncpy( lookup, login, sizeof( lookup ) );
+    } else if ( strncmp( av[ 1 ], "cosign=", 7 ) == 0 ) {
+        if ( ac != 2 ) {
+	    syslog( LOG_ERR, "f_check: %s Wrong number of args.", 
+		    al->al_hostname );
+	    snet_writef( sn, "%d CHECK: Wrong number of args.\r\n", 530 );
 	    return( 1 );
 	}
-    } else if ( strncmp( av[ 1 ], "cosign=", 7 ) == 0 ) {
 	status = 232;
     } else {
 	syslog( LOG_ERR, "f_check: unknown cookie prefix." );
@@ -1014,7 +894,8 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( read_cookie( path, &ci ) != 0 ) {
+ reread:
+    if ( cookiefs_read( lookup, &ci ) != 0 ) {
 	if (( rate = rate_tick( &checkunknown )) != 0.0 ) {
 	    syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 		    inet_ntoa( cosign_sin.sin_addr), rate);
@@ -1053,32 +934,117 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 		    inet_ntoa( cosign_sin.sin_addr), rate);
 	}
 	snet_writef( sn, "%d CHECK: Idle logged out\r\n", 431 );
-	if ( do_logout( path ) < 0 ) {
-	    syslog( LOG_ERR, "f_check: %s: %m", login );
+	if ( cookiefs_logout( lookup ) < 0 ) {
+	    syslog( LOG_ERR, "f_check: %s: %m", lookup );
 	    return( -1 );
 	}
 	return( 1 );
     }
 
+    /* Check for idle timeout of any of the factors. If all factors have 
+     * timed out, then destroy the login session as well. */
+    did_il = 0;
+    for ( il = idlelist; il; il = il->il_next ) {
+	result = cookiefs_idle_out_factors( lookup, 
+					    il->il_factor,
+					    il->il_timeout );
+	if ( result < 0 ) {
+	    syslog( LOG_ERR, 
+		    "f_check: cookiefs_idle_out_factors: %d", result );
+	    return( -1 );
+	} else if ( result > 0 ) {
+	    did_il = 1;
+	}
+    }
+    if ( did_il ) {
+	/* If we idled out any of the factors, we need to re-read the cookie
+	 * data to get a correct factor list. */
+	goto reread;
+    }
+
     /* prevent idle out if we are actually using it */
-    utime( path, NULL );
+    cookiefs_touch( lookup );
+
+
+    /* Touch all of the related cookies if status == 231 (checking svc). But 
+     * don't touch any cookies that didn't already exist! */
+    if ( status == 231 ) {
+	for ( i=2; i<ac; i++ ) {
+	    cookiefs_touch_factor( lookup, av[ i ], 1 );
+	}
+    }
 
     if (( rate = rate_tick( &checkpass )) != 0.0 ) {
 	syslog( LOG_NOTICE, "STATS CHECK %s: PASS %.5f / sec",
 		inet_ntoa( cosign_sin.sin_addr), rate);
     }
 
+    /* Construct a filtered version of the factors that doesn't include 
+     * any privatized factors. Leave the list of factors (to be returned 
+     * to the filter that's querying us) in allowed_factors when done. 
+     */
+ rebuild_factors:
+    strncpy( allowed_factors, ci.ci_realm, sizeof( allowed_factors ) );
+    if ( strlen( allowed_factors ) != strlen( ci.ci_realm ) ) {
+      syslog( LOG_ERR, "f_check: insufficient buffer space for factor list" );
+      return( -1 );
+    }
+
+    tok = NULL;
+    for ( pl = privatizationlist; pl != NULL; pl = pl->pl_next ) {
+      for ( a_factor = strtok_r( ci.ci_realm, " ", &tok );
+	    a_factor != NULL;
+	    a_factor = strtok_r( NULL, " ", &tok ) ) {
+	if ( !strcmp( a_factor, pl->pl_factor ) ) {
+	  if (( rc = regcomp( &preg, pl->pl_regexp, REG_EXTENDED )) != 0 ) {
+	    regerror( rc, &preg, buf, sizeof( buf ));
+	    syslog( LOG_ERR, "f_check: regcomp %s: %s",
+		    pl->pl_regexp, buf );
+	    return( -1 );
+	  }
+	  if (( rc = regexec( &preg, remote_cn, 2, svm, 0 ) ) != 0 ) {
+	    if ( rc == REG_NOMATCH ) {
+		/* If the service has provided that it's interested in this 
+		 * factor, we can trip an error. */
+		if ( status == 231 ) {
+		    for ( i=2; i<ac; i++ ) {
+			if ( strcmp( av[ i ], a_factor ) == 0 ) {
+			    syslog( LOG_ERR,
+				    "access to factor %s forbidden "
+				    "for service %s",
+				    a_factor, remote_cn );
+			    snet_writef( sn, 
+					 "%d CHECK: no permission for "
+					 "%s from %s\r\n",
+					 433, a_factor, remote_cn );
+			    return( 1 );
+			}
+		    }
+		}
+
+		if ( remove_imploded_element( ci.ci_realm,
+					      sizeof( ci.ci_realm ), 
+					      a_factor ) ) {
+		    return( -1 );
+		}
+		goto rebuild_factors;
+	    }
+	  }
+	}
+      }
+    }
+
     if ( protocol == 2 ) {
 	snet_writef( sn, "%d %s %s %s\r\n",
-		status, ci.ci_ipaddr_cur, ci.ci_user, ci.ci_realm );
+		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors );
     } else {
 	/* if there is more than one realm, we just give the first */
-	if (( p = strtok( ci.ci_realm, " " )) != NULL ) {
+	if (( p = strtok( allowed_factors, " " )) != NULL ) {
 	    snet_writef( sn, "%d %s %s %s\r\n",
 		    status, ci.ci_ipaddr, ci.ci_user, p );
 	} else {
 	    snet_writef( sn, "%d %s %s %s\r\n",
-		    status, ci.ci_ipaddr, ci.ci_user, ci.ci_realm );
+		    status, ci.ci_ipaddr, ci.ci_user, allowed_factors );
 	}
 
     }
@@ -1091,7 +1057,6 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
     struct servicelist	*sl;
     struct cinfo        ci;
     struct timeval      tv;
-    char		lpath[ MAXPATHLEN ], spath[ MAXPATHLEN ];
     char		login[ MAXCOOKIELEN ];
 
     if (( al->al_key != CGI ) && ( al->al_key != SERVICE )) {
@@ -1112,24 +1077,12 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( mkcookiepath( NULL, hashlen, av[ 1 ], spath, sizeof( spath )) < 0 ) {
-	syslog( LOG_ERR, "f_retr: mkcookiepath error" );
-	snet_writef( sn, "%d RETR: Invalid cookie name.\r\n", 541 );
-	return( 1 );
-    }
-
-    if ( service_to_login( spath, login ) != 0 ) {
+    if ( cookiefs_service_to_login( av[ 1 ], login ) != 0 ) {
 	snet_writef( sn, "%d RETR: cookie not in db!\r\n", 543 );
 	return( 1 );
     }
 
-    if ( mkcookiepath( NULL, hashlen, login, lpath, sizeof( lpath )) < 0 ) {
-	syslog( LOG_ERR, "f_retr: mkcookiepath error" );
-	snet_writef( sn, "%d RETR: Invalid cookie name.\r\n", 541 );
-	return( 1 );
-    }
-
-    if ( read_cookie( lpath, &ci ) != 0 ) {
+    if ( cookiefs_read( login, &ci ) != 0 ) {
 	snet_writef( sn, "%d RETR: Who me? Dunno.\r\n", 544 );
 	return( 1 );
     }
@@ -1152,7 +1105,7 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	snet_writef( sn, "%d RETR: Idle logged out\r\n", 441 );
-	if ( do_logout( lpath ) < 0 ) {
+	if ( cookiefs_logout( login ) < 0 ) {
 	    syslog( LOG_ERR, "f_retr: %s: %m", login );
 	    return( -1 );
 	}
@@ -1173,8 +1126,8 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
     static int
 retr_proxy( SNET *sn, char *login, SNET *pushersn )
 {
-    char		cookiebuf[ 128 ], lpath[ MAXPATHLEN ];
-    char		cbuf[ MAXCOOKIELEN ], spath[ MAXPATHLEN ];
+    char		cookiebuf[ 128 ];
+    char		cbuf[ MAXCOOKIELEN ];
     struct proxies	*proxy;
     int			rc;
 
@@ -1202,17 +1155,8 @@ retr_proxy( SNET *sn, char *login, SNET *pushersn )
 	    return( -1 );
 	}
 
-	if ( mkcookiepath( NULL, hashlen, cbuf, spath, sizeof( spath )) < 0 ) {
-	    syslog( LOG_ERR, "retr_proxy: mkcookiepath error" );
-	    return( 1 );
-	}
-
-	if ( mkcookiepath( NULL, hashlen, login, lpath, sizeof( lpath )) < 0 ) {
-	    syslog( LOG_ERR, "retr_proxy: mkcookiepath error" );
-	    return( 1 );
-	}
-	if (( rc = do_register( login, lpath, spath )) < 0 ) {
-	    continue;
+	if (( rc = cookiefs_register( login, cbuf, NULL, 0 )) < 0 ) {
+	  continue;
 	}
 
 	if (( pushersn != NULL ) && ( !replicated )) {
@@ -1303,6 +1247,11 @@ command( int fd, SNET *pushersn )
     double				rate;
     struct protoent			*proto;
 
+    if ( cookiefs_init( NULL, hashlen ) ) {
+      syslog( LOG_ERR, "command: cookiefs_init error" );
+      exit( -1 );
+    }
+
     if (( proto = getprotobyname( "tcp" )) != NULL ) {
 	if ( setsockopt( fd, proto->p_proto, TCP_NODELAY,
 		&zero, sizeof( zero )) < 0 ) {
@@ -1312,7 +1261,7 @@ command( int fd, SNET *pushersn )
 
     if (( snet = snet_attach( fd, 1024 * 1024 )) == NULL ) {
 	syslog( LOG_ERR, "snet_attach: %m" );
-	exit( 1 );
+	goto exit1;
     }
 
     /* for debugging, TLS not required but still available. we
@@ -1327,7 +1276,7 @@ command( int fd, SNET *pushersn )
 	if (( al = authlist_find( "NOTLS", NULL, 0 )) == NULL ) {
 	    syslog( LOG_ERR, "No debugging access" );
 	    snet_writef( snet, "%d No NOTLS access\r\n", 508 );
-	    exit( 1 );
+	    goto exit1;
 	}
     }
 
@@ -1385,14 +1334,18 @@ command( int fd, SNET *pushersn )
 		"491 Service not available, closing transmission channel\r\n" );
     } else {
 	if ( snet_eof( snet )) {
-	    exit( 0 );
+	  goto exit0;
 	} else if ( errno == ETIMEDOUT ) {
-	    exit( 0 );
+	  goto exit0;
 	} else {
 	    syslog( LOG_ERR, "snet_getline: %m" );
 	}
     }
 
+ exit1:
+    cookiefs_destroy();
     exit( 1 );
-
+ exit0:
+    cookiefs_destroy();
+    exit( 0 );
 }

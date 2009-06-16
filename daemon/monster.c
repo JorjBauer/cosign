@@ -22,12 +22,12 @@
 #include <openssl/ssl.h>
 #include <snet.h>
 
-#include "cparse.h"
 #include "mkcookie.h"
 #include "logname.h"
 #include "rate.h"
 #include "monster.h"
 #include "config.h"
+#include "srvcookiefs.h"
 
 /* idle_cache = (grey+idle) from cosignd, plus loggedout_cache here */
 int		idle_cache = (60 * 30) +  (60 * 60 * 2) + (60 * 60 * 2);
@@ -43,7 +43,6 @@ int		login_total, login_sent, service_total, service_gone;
 
 static void (*logger)( char * ) = NULL;
 
-static int eat_cookie( char *, struct timeval *, time_t *, int * );
 static void do_dir( char *, struct connlist *, struct timeval * );
 
 char    	*cosign_dir = _COSIGN_DIR;
@@ -471,8 +470,6 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 {
     DIR			*dirp;
     struct dirent	*de;
-    char		path[ MAXPATHLEN ];
-    char		lpath[ MAXPATHLEN ];
     struct connlist	*yacur;
     char                login[ MAXCOOKIELEN ];
     int			state = 0;
@@ -483,19 +480,20 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	syslog( LOG_ERR, "%s: %m", cosign_dir);
 	exit( 1 );
     }
+
+    if ( !cookiefs_init( NULL, hashlen ) ) {
+      syslog( LOG_ERR, "do_dir: cookiefs_init error" );
+      return;
+    }
+
     while (( de = readdir( dirp )) != NULL ) {
 	/* is a login cookie */
-
-	if ( mkcookiepath( NULL, hashlen, de->d_name,
-		path, sizeof( path )) < 0 ) {
-	    continue;
-	}
 
 	if ( strncmp( de->d_name, "cosign=", 7 ) == 0 ) {
 	    login_total++;
 
-	    if (( rc = eat_cookie( path, now, &itime, &state )) < 0 ) {
-		syslog( LOG_ERR, "eat_cookie failure: %s", path );
+	    if (( rc = cookiefs_eat_cookie( de->d_name, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+	      syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", de->d_name );
 		continue;
 	    }
 	    for ( yacur = head; yacur != NULL; yacur = yacur->cl_next ) {
@@ -514,23 +512,18 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	    }
 	} else if ( strncmp( de->d_name, "cosign-", 7 ) == 0 ) {
 	    service_total++;
-	    if ( service_to_login( path, login ) != 0 ) {
+	    if ( cookiefs_service_to_login( de->d_name, login ) != 0 ) {
 		continue;
 	    }
 
-	    if ( mkcookiepath( NULL, hashlen, login,
-		    lpath, sizeof( lpath )) < 0 ) {
-		syslog( LOG_ERR, "do_dir: mkcookiepath error." );
-		exit( 1 );
-	    }
-
-	    if (( rc = eat_cookie( lpath, now, &itime, &state )) < 0 ) {
-		syslog( LOG_ERR, "eat_cookie failure: %s", login );
+	    if (( rc = cookiefs_eat_cookie( login, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+		syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", login );
 		continue;
 	    }
 	    if ( rc == 0 ) {
-		if ( unlink( path ) != 0 ) {
-		    syslog( LOG_ERR, "%s: 12: %m", path );
+		login_gone++;
+		if ( cookiefs_delete( login ) != 0 ) {
+		    syslog( LOG_ERR, "%s: 12: %m", login );
 		}
 		service_gone++;
 	    }
@@ -539,63 +532,5 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	}
     }
     closedir( dirp );
-}
-
-    int
-eat_cookie( char *name, struct timeval *now, time_t *itime, int *state )
-{
-    struct cinfo	ci;
-    int			rc, create = 0;
-    extern int		errno;
-
-
-    /* -1 is a serious error
-     * 0 means the cookie was deleted
-     * 1 means still good and time was updated
-     */
-
-    if (( rc = read_cookie( name, &ci )) < 0 ) {
-	syslog( LOG_ERR, "read_cookie error: %s", name );
-	return( -1 );
-    }
-
-    /* login cookie gave us an ENOENT so we think it's gone */
-    if ( rc == 1 ) {
-	return( 0 );
-    }
-
-    /* logged out plus extra non-fail overtime */
-    if ( !ci.ci_state && (( now->tv_sec - ci.ci_itime ) > loggedout_cache )) {
-	goto delete_stuff;
-    }
-
-    /* idle out, plus gray window, plus non-failover */
-    if (( now->tv_sec - ci.ci_itime )  > idle_cache ) {
-	goto delete_stuff;
-    }
-
-    /* hard timeout */
-    create = atoi( ci.ci_ctime );
-    if (( now->tv_sec - create )  > hard_timeout ) {
-	goto delete_stuff;
-    }
-
-    *itime = ci.ci_itime; 
-    *state = ci.ci_state;
-    return( 1 );
-
-delete_stuff:
-
-    /* remove krb5 ticket and login cookie */
-    if ( *ci.ci_krbtkt != '\0' ) {
-	if ( unlink( ci.ci_krbtkt ) != 0 ) {
-	    syslog( LOG_ERR, "unlink krbtgt %s: %m", ci.ci_krbtkt );
-	}
-    }
-    if ( unlink( name ) != 0 ) {
-	syslog( LOG_ERR, "%s: %m", name );
-    } 
-    login_gone++;
-
-    return( 0 );
+    cookiefs_destroy();
 }

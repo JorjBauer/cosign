@@ -32,12 +32,13 @@ struct cosigncfg {
 
 static struct authlist		*authlist = NULL, *new_authlist;
 struct factorlist	 	*factorlist = NULL;
-static struct servicelist	*servicelist = NULL, *new_servicelist;;
+static struct servicelist	*servicelist = NULL, *new_servicelist;
 static struct matchlist		*certlist = NULL;
 static struct matchlist		*negotiatemap = NULL;
 static struct matchlist		*authenticatorlist = NULL;
 static struct cosigncfg 	*cfg = NULL, *new_cfg;
-
+struct idlelist			*idlelist = NULL;
+struct privatizationlist	*privatizationlist = NULL;
 
 static struct matchlist		defmysqlauthenticator = {
     "mysql", "(.+@.+)", "$1", "friend", NULL,
@@ -48,6 +49,7 @@ static struct matchlist		defkerberosauthenticator = {
 };
 
 char			*suffix = NULL;
+char			*parasitic_suffix = NULL;
 
     static void
 config_free( struct cosigncfg **p )
@@ -450,6 +452,8 @@ read_config( char *path )
     struct servicelist	*sl_new, **sl_cur;
     struct matchlist	*cl_new, **cl_cur;
     struct factorlist	*fl_new, **fl_cur;
+    struct idlelist	*il_new, **il_cur;
+    struct privatizationlist *pl_new, **pl_cur;
 
     if (( sn = snet_open( path, O_RDONLY, 0, 0 )) == NULL ) {
 	perror( path );
@@ -648,6 +652,64 @@ read_config( char *path )
 	    cl_new->ml_next = *cl_cur;
 	    *cl_cur = cl_new;
 
+	} else if ( strcmp( av[ 0 ], "privatize-factor" ) == 0 ) {
+	    if ( ac != 3 ) {
+		fprintf( stderr, "line %d:"
+			 " keyword privatize-factor takes 2 args\n",
+			 linenum );
+		return( -1 );
+	    }
+
+	    if (( pl_new = malloc( sizeof( struct privatizationlist ))) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+	    if (( pl_new->pl_factor = strdup( av[ 1 ] )) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+	    if (( pl_new->pl_regexp = strdup( av[ 2 ] )) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+
+	    for ( pl_cur = &privatizationlist; (*pl_cur) != NULL;
+		    pl_cur = &(*pl_cur)->pl_next )
+		;
+
+	    pl_new->pl_next = *pl_cur;
+	    *pl_cur = pl_new;
+
+	} else if ( strcmp( av[ 0 ], "idlefactor" ) == 0 ) {
+	    if ( ac != 3 ) {
+		fprintf( stderr, "line %d:"
+			 " keyword idlefactor takes 2 args\n",
+			 linenum );
+		return( -1 );
+	    }
+
+	    if (( il_new = malloc( sizeof( struct idlelist ))) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+	    if (( il_new->il_factor = strdup( av[ 1 ] )) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+	    il_new->il_timeout = atoi( av[ 2 ] );
+	    if ( il_new->il_timeout <= 0 ) {
+		fprintf( stderr, "line %d:"
+			 " invalid factor idle timeout\n",
+			 linenum );
+		return( -1 );
+	    }
+	    for ( il_cur = &idlelist; (*il_cur) != NULL;
+		    il_cur = &(*il_cur)->il_next )
+		;
+
+	    il_new->il_next = *il_cur;
+	    *il_cur = il_new;
+
 	} else if ( strcmp( av[ 0 ], "factor" ) == 0 ) {
 	    if ( ac < 3 ) {
 		fprintf( stderr, "line %d:"
@@ -701,6 +763,25 @@ read_config( char *path )
 
 	    fl_new->fl_next = *fl_cur;
 	    *fl_cur = fl_new;
+
+	} else if ( strcmp( av[ 0 ], "parasitic-suffix" ) == 0 ) {
+	    if ( ac != 2 ) {
+		fprintf( stderr,
+			 "line %d: keyword parasitic-suffix takes 1 arg\n",
+			 linenum);
+		return( -1 );
+	    }
+	    if ( parasitic_suffix != NULL ) {
+		fprintf( stderr, 
+			 "line %d: "
+			 "keyword parasitic-suffix already set to %s\n",
+			 linenum, parasitic_suffix );
+		return( -1 );
+	    }
+	    if (( parasitic_suffix = strdup( av[ 1 ] )) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
 
 	} else if ( strcmp( av[ 0 ], "suffix" ) == 0 ) {
 	    if ( ac != 2 ) {

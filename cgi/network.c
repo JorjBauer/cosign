@@ -385,7 +385,8 @@ net_logout( SNET *sn, void *vlp )
 
 
     int
-cosign_register( struct connlist *conn, char *cookie, char *ip, char *scookie )
+cosign_register( struct connlist *conn, char *cookie, char *ip, char *scookie,
+		 char *factors )
 {
 
     struct reg_param rp;
@@ -397,6 +398,7 @@ cosign_register( struct connlist *conn, char *cookie, char *ip, char *scookie )
     rp.rp_cookie = cookie;
     rp.rp_ip = ip;
     rp.rp_scookie = scookie;
+    rp.rp_factors = factors;
 
     if ( cosign_choose_conn( conn, &rp, net_register ) < 0 ) {
 	return( -1 );
@@ -412,8 +414,8 @@ net_register( SNET *sn, void *vrp )
     struct timeval	 tv;
     struct reg_param	*rp = vrp;
 
-    if ( snet_writef( sn, "REGISTER %s %s %s\r\n", rp->rp_cookie, rp->rp_ip,
-	    rp->rp_scookie ) < 0 ) {
+    if ( snet_writef( sn, "REGISTER %s %s %s %s\r\n", rp->rp_cookie, rp->rp_ip,
+	    rp->rp_scookie, rp->rp_factors ) < 0 ) {
 	fprintf( stderr, "cosign_register: register failed\n" );
 	return( COSIGN_ERROR );
     }

@@ -57,17 +57,58 @@ static struct rate   		checkunknown = { 0 };
 static double             	rate;
 
     static int
+implode_factors( char *in[], int howmany, char *out, int out_length)
+{
+  int i, l;
+
+  if ( out == NULL || out_length <= 0 ) {
+    return( 0 );
+  }
+
+  out[0] = '\0';
+
+  for ( i=0; i<howmany; i++ ) {
+    l = snprintf( out, out_length, "%s ", in[ i ] );
+    if ( l != strlen( in[ i ] ) + 1 ) {
+      return( 0 );
+    }
+    out += l;
+    out_length -= l;
+  }
+
+  return( 1 );
+}
+
+    static int
 netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 	void *s, cosign_host_config *cfg )
 {
+
+    /* These variable names are terrible. 'fc' is the count of required
+     * factors. 'fv' is the value list of required factors. */
     int			i, j, ac, rc, fc = cfg->reqfc;
     char		*p, *line, **av, **fv = cfg->reqfv;
     struct timeval      tv;
     SNET		*sn = conn->conn_sn;
     extern int		errno;
+    char                imploded_factors[ 1024 ];
+
+    imploded_factors[ 0 ] = '\0';
+    if ( implode_factors( fv, 
+			  fc, 
+			  imploded_factors,
+			  sizeof( imploded_factors ) ) != 1 ) {
+      cosign_log( APLOG_ERR, s, 
+		  "mod_cosign: netcheck_cookie: insufficient buffer space" );
+      /* Continue anyway. Factor timeouts will be affected, but naught else. */
+    }
 
     /* CHECK service-cookie */
-    if ( snet_writef( sn, "CHECK %s\r\n", scookie ) < 0 ) {
+    if ( snet_writef( sn, 
+		      "CHECK %s%s%s\r\n", 
+		      scookie, 
+		      imploded_factors[ 0 ] ? " " : "",
+		      imploded_factors ) < 0 ) {
 	cosign_log( APLOG_ERR, s,
 		"mod_cosign: netcheck_cookie: snet_writef failed" );
 	return( COSIGN_ERROR );
