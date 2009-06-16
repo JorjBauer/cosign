@@ -210,6 +210,7 @@ cookiefs_init( char *prefix, int hashlen )
       syslog( LOG_ERR, "Unable to configure SSL" );
       return ( -1 );
     }
+  }
 
   if (! (l_sock = mysql_real_connect( l_sql,
 				      mysql_server,
