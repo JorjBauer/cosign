@@ -61,7 +61,7 @@ int			mysql_usessl = 0;
 int			mysql_port = 0;
 
     static int
-set_string( char **where, char *av[], int ac, linenum ) 
+set_string( char **where, char *av[], int ac, int linenum ) 
 {
   if ( ac != 2 ) {
     fprintf( stderr,
