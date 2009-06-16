@@ -50,6 +50,40 @@ static struct matchlist		defkerberosauthenticator = {
 
 char			*suffix = NULL;
 char			*parasitic_suffix = NULL;
+char			*mysql_user = NULL;
+char			*mysql_pass = NULL;
+char			*mysql_database = NULL;
+char			*mysql_server = NULL;
+char			*mysql_tlskey = NULL;
+char			*mysql_tlscert = NULL;
+char			*mysql_tlsca = NULL;
+int			mysql_usessl = 0;
+int			mysql_port = 0;
+
+    static int
+set_string( char **where, char *av[], int ac ) 
+{
+  if ( ac != 2 ) {
+    fprintf( stderr,
+	     "line %d: keyword %s takes 1 arg\n",
+	     linenum, 
+	     av[ 0 ] );
+    return( -1 );
+  }
+
+  if ( *where != NULL ) {
+    fprintf( stderr, "line %d: "
+	     "keyword %s already set to %s\n", 
+	     linenum, av[ 0 ], *where );
+    return( -1 );
+  }
+
+  if ( (*where = strdup( av [ 1 ] )) == NULL ) {
+    perror( "malloc" );
+    return( -1 );
+  }
+  return( 0 );
+}
 
     static void
 config_free( struct cosigncfg **p )
@@ -833,6 +867,63 @@ read_config( char *path )
 		return( -1 ); 
 	    }
 	    al_new->al_flag |= AL_PROXY;
+	} else if ( strcasecmp( av[ 0 ], "mysqluser" ) == 0 ) {
+	  if ( set_string( &mysql_user, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqlpass" ) == 0 ) {
+	  if ( set_string( &mysql_pass, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqldatabase" ) == 0 ) {
+	  if ( set_string( &mysql_database, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqlserver" ) == 0 ) {
+	  if ( set_string( &mysql_server, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqlusessl" ) == 0 ) {
+	  if ( ac != 2 ) {
+	    fprintf( stderr,
+		     "line %d: keyword %s takes 1 arg\n",
+		     linenum, 
+		     av[ 0 ] );
+	    return( -1 );
+	  }
+
+	  if ( !strcasecmp( av[ 1 ], "true" ) &&
+	       !strcasecmp( av[ 1 ], "false" ) ) {
+	    fprintf( stderr,
+		     "line %d: keyword %s expects 'true' or 'false'\n",
+		     linenum, 
+		     av[ 0 ] );
+	    return( -1 );
+	  }
+
+	  mysql_usessl = ! strcasecmp( av[ 1 ], "true" );
+	} else if ( strcasecmp( av[ 0 ], "mysqltlskey" ) == 0 ) {
+	  if ( set_string( &mysql_tlskey, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqltlscert" ) == 0 ) {
+	  if ( set_string( &mysql_tlscert, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqltlsca" ) == 0 ) {
+	  if ( set_string( &mysql_tlsca, av, ac ) != 0 ) {
+	    return( -1 );
+	  }
+	} else if ( strcasecmp( av[ 0 ], "mysqlport" ) == 0 ) {
+	  if ( ac != 2 ) {
+	    fprintf( stderr,
+		     "line %d: keyword %s takes 1 arg\n",
+		     linenum, 
+		     av[ 0 ] );
+	    return( -1 );
+	  }
+
+	  mysql_port = atoi( av[ 1 ] );
 
 	} else {
 	    /*

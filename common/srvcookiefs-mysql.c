@@ -30,6 +30,17 @@ static int l_initialized = 0;
 static MYSQL *l_sql = NULL;
 static MYSQL *l_sock = NULL;
 
+extern char                    *mysql_user;
+extern char                    *mysql_pass;
+extern char                    *mysql_database;
+extern char                    *mysql_server;
+extern char                    *mysql_tlskey;
+extern char                    *mysql_tlscert;
+extern char                    *mysql_tlsca;
+extern int                     mysql_usessl;
+extern int                     mysql_port;
+
+
 enum {
   kITIME      = 0,
   kSTATE      = 1,
@@ -188,27 +199,27 @@ cookiefs_init( char *prefix, int hashlen )
     return ( -1 );
   }
 
-#if 0
-  if (mysql_ssl_set( l_sql, 
-		     "/path/to/key", 
-		     "/path/to/cert",
-		     "/path/to/ca",
-		     NULL,                      // path to CA directory
-		     NULL                       // list of allowed ciphers
-		     ) ) {
-    syslog( LOG_ERR, "Unable to configure SSL" );
-    return ( -1 );
-  }
-#endif
+  if ( mysql_usessl ) {
+    if (mysql_ssl_set( l_sql, 
+		       mysql_tlskey,
+		       mysql_tlscert,
+		       mysql_tlsca,
+		       NULL,                      // path to CA directory
+		       NULL                       // list of allowed ciphers
+		       ) ) {
+      syslog( LOG_ERR, "Unable to configure SSL" );
+      return ( -1 );
+    }
 
   if (! (l_sock = mysql_real_connect( l_sql,
-				      NULL, // server name. NULL == localhost
-				      "cosign", // user
-				      "cosign", // pass
-				      "cosign", // database ame
-				      0,          // port (0=default)
+				      mysql_server,
+				      mysql_user,
+				      mysql_pass,
+				      mysql_database,
+				      mysql_port,
 				      NULL,       // unix socket (NULL=default)
-				      0 ) ) ) {     // client flags (0=default)
+				      mysql_usessl ? CLIENT_SSL : 0
+				      ) ) ) {
     syslog( LOG_ERR, "Unable to connect to database server" );
     return ( -1 );
   }
