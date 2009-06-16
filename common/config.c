@@ -61,7 +61,7 @@ int			mysql_usessl = 0;
 int			mysql_port = 0;
 
     static int
-set_string( char **where, char *av[], int ac ) 
+set_string( char **where, char *av[], int ac, linenum ) 
 {
   if ( ac != 2 ) {
     fprintf( stderr,
@@ -868,19 +868,19 @@ read_config( char *path )
 	    }
 	    al_new->al_flag |= AL_PROXY;
 	} else if ( strcasecmp( av[ 0 ], "mysqluser" ) == 0 ) {
-	  if ( set_string( &mysql_user, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_user, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqlpass" ) == 0 ) {
-	  if ( set_string( &mysql_pass, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_pass, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqldatabase" ) == 0 ) {
-	  if ( set_string( &mysql_database, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_database, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqlserver" ) == 0 ) {
-	  if ( set_string( &mysql_server, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_server, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqlusessl" ) == 0 ) {
@@ -903,15 +903,15 @@ read_config( char *path )
 
 	  mysql_usessl = ! strcasecmp( av[ 1 ], "true" );
 	} else if ( strcasecmp( av[ 0 ], "mysqltlskey" ) == 0 ) {
-	  if ( set_string( &mysql_tlskey, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_tlskey, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqltlscert" ) == 0 ) {
-	  if ( set_string( &mysql_tlscert, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_tlscert, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqltlsca" ) == 0 ) {
-	  if ( set_string( &mysql_tlsca, av, ac ) != 0 ) {
+	  if ( set_string( &mysql_tlsca, av, ac, linenum ) != 0 ) {
 	    return( -1 );
 	  }
 	} else if ( strcasecmp( av[ 0 ], "mysqlport" ) == 0 ) {
