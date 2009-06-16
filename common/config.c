@@ -58,7 +58,7 @@ char			*mysql_tlskey = NULL;
 char			*mysql_tlscert = NULL;
 char			*mysql_tlsca = NULL;
 int			mysql_usessl = 0;
-int			mysql_port = 0;
+int			mysql_portnum = 0;
 
     static int
 set_string( char **where, char *av[], int ac, int linenum ) 
@@ -923,7 +923,7 @@ read_config( char *path )
 	    return( -1 );
 	  }
 
-	  mysql_port = atoi( av[ 1 ] );
+	  mysql_portnum = atoi( av[ 1 ] );
 
 	} else {
 	    /*

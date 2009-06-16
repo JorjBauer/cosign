@@ -38,7 +38,7 @@ extern char                    *mysql_tlskey;
 extern char                    *mysql_tlscert;
 extern char                    *mysql_tlsca;
 extern int                     mysql_usessl;
-extern int                     mysql_port;
+extern int                     mysql_portnum;
 
 
 enum {
@@ -217,7 +217,7 @@ cookiefs_init( char *prefix, int hashlen )
 				      mysql_user,
 				      mysql_pass,
 				      mysql_database,
-				      mysql_port,
+				      mysql_portnum,
 				      NULL,       // unix socket (NULL=default)
 				      mysql_usessl ? CLIENT_SSL : 0
 				      ) ) ) {
