@@ -183,11 +183,18 @@ int record_exists_by_two_values( const char *template, const char *value1,
     void
 cookiefs_destroy( )
 {
-  if ( l_initialized ) {
-    mysql_close( l_sock );
-    mysql_close( l_sql );
-    l_initialized = 0;
-  }
+    if ( l_initialized ) {
+	if ( l_sock == l_sql ) {
+	    l_sql = NULL;
+	}
+	if ( l_sock ) {
+	    mysql_close( l_sock );
+	}
+	if ( l_sql ) {
+	    mysql_close( l_sql );
+	}
+	l_initialized = 0;
+    }
 }
 
     int
