@@ -495,12 +495,12 @@ pusher( int cpipe, struct connlist *cur )
         goto error;
     }
 
-    if ( cookiefs_init( NULL, hashlen ) ) {
+    if ( cookiefs->f_init( NULL, hashlen ) ) {
       syslog( LOG_ERR, "pusher: cookiefs_init error" );
       goto error;
     }
 
-    if (( rc = cookiefs_read( av[ 1 ], &ci )) != 0 ) {
+    if (( rc = cookiefs->f_read( av[ 1 ], &ci )) != 0 ) {
 	syslog( LOG_ERR, "pusher: cookiefs_read error: %s", path );
 	continue;
     }
@@ -558,7 +558,7 @@ pusher( int cpipe, struct connlist *cur )
         } else {
             syslog( LOG_ERR, "pusher: login %s failed: %m\n", av[ 1 ] );
         }
-	cookiefs_destroy();
+	cookiefs->f_destroy();
 	exit( 1 );
     }
 
@@ -568,7 +568,7 @@ done:
 	if (( close_sn( cur )) != 0 ) {
 	    syslog( LOG_ERR, "pusher: done: close_sn: %m" );
 	}
-	cookiefs_destroy();
+	cookiefs->f_destroy();
 	exit( 1 );
     }
 	}
@@ -577,6 +577,6 @@ error:
     if (( close_sn( cur )) != 0 ) {
 	syslog( LOG_ERR, "pusher: error: close_sn: %m" );
     }
-    cookiefs_destroy();
+    cookiefs->f_destroy();
     exit( 1 );
 }

@@ -65,6 +65,39 @@ enum {
   sizeNul = 1
 };
 
+/* forward declarations */
+int cookiedb_mysql_init( char *, int );
+void cookiedb_mysql_destroy( );
+int cookiedb_mysql_validate( char *,int, int );
+int cookiedb_mysql_logout( char * );
+int cookiedb_mysql_read( char *, struct cinfo * );
+int cookiedb_mysql_write_login( char *, struct cinfo * );
+int cookiedb_mysql_register( char *, char *, char *[], int );
+int cookiedb_mysql_service_to_login( char *, char * );
+int cookiedb_mysql_delete( char * );
+int cookiedb_mysql_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
+int cookiedb_mysql_touch( char * );
+int cookiedb_mysql_touch_factor( char *, char *, int );
+int cookiedb_mysql_idle_out_factors( char *, char *, unsigned int );
+
+/* Dispatch table */
+struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
+			       cookiedb_mysql_destroy,
+			       cookiedb_mysql_validate,
+			       cookiedb_mysql_logout,
+			       cookiedb_mysql_read,
+			       cookiedb_mysql_write_login,
+			       cookiedb_mysql_register,
+			       cookiedb_mysql_service_to_login,
+			       cookiedb_mysql_delete,
+			       cookiedb_mysql_eat,
+			       cookiedb_mysql_touch,
+			       cookiedb_mysql_touch_factor,
+			       cookiedb_mysql_idle_out_factors };
+
+struct cfs_funcs *cookiefs = mysql_cfs;
+
+
 static
 unsigned long long get_ull( MYSQL_ROW *row, int idx )
 {
@@ -181,7 +214,7 @@ int record_exists_by_two_values( const char *template, const char *value1,
 }
 
     void
-cookiefs_destroy( )
+cookiedb_mysql_destroy( )
 {
     if ( l_initialized ) {
 	if ( l_sock == l_sql ) {
@@ -198,7 +231,7 @@ cookiefs_destroy( )
 }
 
     int
-cookiefs_init( char *prefix, int hashlen )
+cookiedb_mysql_init( char *prefix, int hashlen )
 {
   l_sql = mysql_init(NULL);
   if ( !l_sql) {
@@ -240,7 +273,7 @@ cookiefs_init( char *prefix, int hashlen )
  * does not exist.
  */
     int
-cookiefs_validate( char *cookie, int timestamp, int state )
+cookiedb_mysql_validate( char *cookie, int timestamp, int state )
 {
   int result;
   unsigned long record_timestamp;
@@ -254,26 +287,26 @@ cookiefs_validate( char *cookie, int timestamp, int state )
   int sql_state = kLOGGED_OUT;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_validate: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_validate: not initialized" );
     return( -1 );
   }
   /* If the cookie contains an apostrophe, that's a problem. */
   if ( strstr(cookie, "'") ) {
-    syslog( LOG_ERR, "cookiefs_validate: invalid cookie value" );
+    syslog( LOG_ERR, "cookiedb_mysql_validate: invalid cookie value" );
     return( -1 );
   }
 
   /* -2 for the %s, +1 for the null terminator. */
   query = malloc(strlen(select_template) + strlen(cookie) - 2 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_validate: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_validate: unable to malloc" );
     return( -1 );
   }
   sprintf(query, select_template, cookie);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR, 
-	    "cookiefs_validate: failed to execute query '%s': %d", 
+	    "cookiedb_mysql_validate: failed to execute query '%s': %d", 
 	    query,
 	    mysql_errno( l_sql ) );
     free(query);
@@ -284,7 +317,7 @@ cookiefs_validate( char *cookie, int timestamp, int state )
 
   sql_data = mysql_use_result( l_sql );
   if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiefs_validate: mysql_use_result failed" );
+    syslog( LOG_ERR, "cookiedb_mysql_validate: mysql_use_result failed" );
     return( -1 );
   }
 
@@ -309,14 +342,14 @@ cookiefs_validate( char *cookie, int timestamp, int state )
     /* +10 for length of MAXINT as a string; -5 for "%lu%s"; +1 for NUL */
     query = malloc(strlen(update_template) + strlen(cookie) + sizeUl - 5 + sizeNul);
     if ( !query ) {
-      syslog( LOG_ERR, "cookiefs_validate: unable to malloc" );
+      syslog( LOG_ERR, "cookiedb_mysql_validate: unable to malloc" );
       return( -1 );
     }
     sprintf(query, update_template, timestamp, cookie);
     result = mysql_query( l_sql, query );
     if ( result ) {
       syslog( LOG_ERR, 
-	      "cookiefs_validate: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	      "cookiedb_mysql_validate: failed to execute '%s': %d", query, mysql_errno(l_sql) );
       free(query);
       return ( -1 );
     }
@@ -328,14 +361,14 @@ cookiefs_validate( char *cookie, int timestamp, int state )
      log 'em out.
   */
   if ( ( state == 0 ) && sql_state != kACTIVE) {
-    return cookiefs_logout( cookie );
+    return cookiedb_mysql_logout( cookie );
   }
 
   return( 0 );
 }
 
     int
-cookiefs_logout( char *cookie )
+cookiedb_mysql_logout( char *cookie )
 {
   char *query = NULL;
   int result;
@@ -343,21 +376,21 @@ cookiefs_logout( char *cookie )
                                 "WHERE login_cookie='%s'";
 
     if ( !l_initialized ) {
-	syslog( LOG_ERR, "cookiefs_logout: not initialized" );
+	syslog( LOG_ERR, "cookiedb_mysql_logout: not initialized" );
 	return( -1 );
     }
 
     /* -2 for "%s"; +1 for NUL */
     query = malloc(strlen(logout_template) + strlen(cookie) - 2 + sizeNul);
     if ( !query ) {
-      syslog( LOG_ERR, "cookiefs_logout: unable to malloc" );
+      syslog( LOG_ERR, "cookiedb_mysql_logout: unable to malloc" );
       return( -1 );
     }
     sprintf(query, logout_template, cookie);
     result = mysql_query( l_sql, query );
     if ( result ) {
       syslog( LOG_ERR, 
-	      "cookiefs_logout: failed to execute query '%s': %d", 
+	      "cookiedb_mysql_logout: failed to execute query '%s': %d", 
 	      query,
 	      mysql_errno( l_sql ) );
       free(query);
@@ -370,7 +403,7 @@ cookiefs_logout( char *cookie )
 
 /* return 0 for success, -1 for error, and 1 if the cookie wasn't found */
     int
-cookiefs_read( char *cookie, struct cinfo *ci )
+cookiedb_mysql_read( char *cookie, struct cinfo *ci )
 {
   int result;
   char *query = NULL;
@@ -386,21 +419,21 @@ cookiefs_read( char *cookie, struct cinfo *ci )
   char *p;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_read: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_read: not initialized" );
     return( -1 );
   }
   
   /* -2 for "%s"; +1 for NUL */
   query = malloc(strlen(read_template) + strlen(cookie) - 2 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_read: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_read: unable to malloc" );
     return( -1 );
   }
   sprintf(query, read_template, cookie);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR, 
-	    "cookiefs_read: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	    "cookiedb_mysql_read: failed to execute '%s': %d", query, mysql_errno(l_sql) );
     free(query);
     return ( -1 );
   }
@@ -409,7 +442,7 @@ cookiefs_read( char *cookie, struct cinfo *ci )
 
   sql_data = mysql_use_result( l_sql );
   if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiefs_read: mysql_use_result failed" );
+    syslog( LOG_ERR, "cookiedb_mysql_read: mysql_use_result failed" );
     return( -1 );
   }
   
@@ -439,14 +472,14 @@ cookiefs_read( char *cookie, struct cinfo *ci )
   /* -2 for "%s"; +1 for NUL */
   query = malloc(strlen(read_factor_template) + strlen(cookie) - 2 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_read: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_read: unable to malloc" );
     return( -1 );
   }
   sprintf(query, read_factor_template, cookie);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR,
-            "cookiefs_read: failed to execute '%s': %d", 
+            "cookiedb_mysql_read: failed to execute '%s': %d", 
 	    query, mysql_errno(l_sql) );
     free(query);
     return ( -1 );
@@ -456,7 +489,7 @@ cookiefs_read( char *cookie, struct cinfo *ci )
 
   sql_data = mysql_use_result( l_sql ); 
   if ( !sql_data ) {
-      syslog( LOG_ERR, "cookiefs_read: mysql_use_result failed" );
+      syslog( LOG_ERR, "cookiedb_mysql_read: mysql_use_result failed" );
       return( -1 );
   }
 
@@ -466,7 +499,7 @@ cookiefs_read( char *cookie, struct cinfo *ci )
   while ( (sql_row = mysql_fetch_row( sql_data )) ) {
       if ( left <= strlen( sql_row[ 0 ] ) + 1 ) { /* +1 for space; <= for NUL */
 	  syslog( LOG_ERR, 
-		  "cookiefs_read: insufficient buffer space for factor list" );
+		  "cookiedb_mysql_read: insufficient buffer space for factor list" );
 	  return( -1 );
       }
       sz = sprintf( p, "%s ", sql_row[ 0 ] );
@@ -483,7 +516,7 @@ cookiefs_read( char *cookie, struct cinfo *ci )
 }
 
     int
-cookiefs_write_login( char *cookie, struct cinfo *ci )
+cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
 {
   int result;
   char *query = NULL;
@@ -508,7 +541,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
   int content_size;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_write_login: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_write_login: not initialized" );
     return( -1 );
   }
 
@@ -518,7 +551,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
   while (value_map[vm_idx]) {
     const char *p = value_map[vm_idx];
     if ( strstr(p, "'") ) {
-      syslog( LOG_ERR, "cookiefs_write_login: invalid value" );
+      syslog( LOG_ERR, "cookiedb_mysql_write_login: invalid value" );
       return( -1 );
     }
     vm_idx++;
@@ -550,7 +583,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
 
   query = malloc(strlen(template) + content_size);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_write_login: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_write_login: unable to malloc" );
     return( -1 );
   }
   sprintf(query, template, time(NULL), ci->ci_version, 
@@ -560,7 +593,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR,
-	    "cookiefs_write_login: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	    "cookiedb_mysql_write_login: failed to execute '%s': %d", query, mysql_errno(l_sql) );
     free( query );
     return( -1 );
   }
@@ -570,7 +603,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
   for ( factor = strtok( ci->ci_realm, " " );
 	    factor != NULL;
 	    factor = strtok( NULL, " " ) ) {
-      if ( cookiefs_touch_factor( cookie, factor, 0 ) != 0 ) {
+      if ( cookiedb_mysql_touch_factor( cookie, factor, 0 ) != 0 ) {
 	  /* already syslogged an error */
 	  return( -1 );
       }
@@ -580,7 +613,7 @@ cookiefs_write_login( char *cookie, struct cinfo *ci )
 }
 
     int
-cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factors )
+cookiedb_mysql_register( char *lcookie, char *scookie, char *factors[], int num_factors )
 {
   char *query = NULL;
   const char *exists_template = "SELECT login_cookie FROM service_cookies "
@@ -595,18 +628,18 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
   int result, i;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_register: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_register: not initialized" );
     return( -1 );
   }
 
   if ( strstr(lcookie, "'") || strstr(scookie, "'") ) {
-    syslog( LOG_ERR, "cookiefs_register: invalid cookie value" );
+    syslog( LOG_ERR, "cookiedb_mysql_register: invalid cookie value" );
     return( -1 );
   }
 
   for (i=0; i<num_factors; i++) {
     if ( strstr( factors[ i ], "'" ) ) {
-      syslog( LOG_ERR, "cookiefs_register: invalid factor name" );
+      syslog( LOG_ERR, "cookiedb_mysql_register: invalid factor name" );
       return( -1 );
     }
   }
@@ -629,7 +662,7 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
 
   query = malloc(strlen(template) + content_size);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_register: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_register: unable to malloc" );
     return( -1 );
   }
 
@@ -637,7 +670,7 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR,
-	    "cookiefs_register: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	    "cookiedb_mysql_register: failed to execute '%s': %d", query, mysql_errno(l_sql) );
     free( query );
     return( -1 );
   }
@@ -645,8 +678,8 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
   query = NULL;
 
   for ( i = 0; i < num_factors; i++ ) {
-      if ( cookiefs_touch_factor( lcookie, factors[ i ], 0 ) != 0 ) {
-	  syslog( LOG_ERR, "cookiefs_register: failed to touch factor %s\n", 
+      if ( cookiedb_mysql_touch_factor( lcookie, factors[ i ], 0 ) != 0 ) {
+	  syslog( LOG_ERR, "cookiedb_mysql_register: failed to touch factor %s\n", 
 		  factors[ i ] );
 	  return( -1 );
       }
@@ -658,7 +691,7 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
 /* Jorj: not happy that this doesn't take a length - but conforms to old use
  * of service_to_login. */
     int
-cookiefs_service_to_login( char *cookie, char *login )
+cookiedb_mysql_service_to_login( char *cookie, char *login )
 {
   const char *query_template = "SELECT login_cookie FROM "
     "service_cookies "
@@ -669,21 +702,21 @@ cookiefs_service_to_login( char *cookie, char *login )
   MYSQL_ROW sql_row;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_service_to_login: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: not initialized" );
     return( -1 );
   }
  
   /* -2 for '%s', +1 for NUL */
   query = malloc(strlen(query_template) + strlen(cookie) - 2 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_service_to_login: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: unable to malloc" );
     return( -1 );
   }
   sprintf(query, query_template, cookie);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR, 
-	    "cookiefs_service_to_login: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	    "cookiedb_mysql_service_to_login: failed to execute '%s': %d", query, mysql_errno(l_sql) );
     free(query);
     return ( -1 );
   }
@@ -692,13 +725,13 @@ cookiefs_service_to_login( char *cookie, char *login )
 
   sql_data = mysql_use_result( l_sql );
   if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiefs_service_to_login: mysql_use_result failed" );
+    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: mysql_use_result failed" );
     return( -1 );
   }
 
   sql_row = mysql_fetch_row( sql_data );
   if ( !sql_row ) {
-    syslog( LOG_ERR, "cookiefs_service_to_login: unable to retrieve row data" );
+    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: unable to retrieve row data" );
     mysql_free_result( sql_data );
     return( -1 );
   }
@@ -712,7 +745,7 @@ cookiefs_service_to_login( char *cookie, char *login )
 }
 
     int
-cookiefs_delete( char *cookie )
+cookiedb_mysql_delete( char *cookie )
 {
   const char *delete_template = "DELETE FROM %s_cookies WHERE %s_cookie='%s'";
   char what[8]; /* MAX(strlen("login"), strlen("service")) + sizeNul */
@@ -720,7 +753,7 @@ cookiefs_delete( char *cookie )
   int result;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_delete: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_delete: not initialized" );
     return( -1 );
   }
 
@@ -736,14 +769,14 @@ cookiefs_delete( char *cookie )
 		 2*strlen(what) + 
 		 strlen(cookie) - 6 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_delete: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_delete: unable to malloc" );
     return( -1 );
   }
   sprintf(query, delete_template, what, what, cookie);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR, 
-	    "cookiefs_delete: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	    "cookiedb_mysql_delete: failed to execute '%s': %d", query, mysql_errno(l_sql) );
     free(query);
     return ( -1 );
   }
@@ -754,7 +787,7 @@ cookiefs_delete( char *cookie )
 }
 
     int 
-cookiefs_eat_cookie( char *cookie, struct timeval *now, time_t *itime, 
+cookiedb_mysql_eat_cookie( char *cookie, struct timeval *now, time_t *itime, 
 	      int *state, int loggedout_cache, int idle_cache, 
 	      int hard_timeout )
 {
@@ -767,12 +800,12 @@ cookiefs_eat_cookie( char *cookie, struct timeval *now, time_t *itime,
      */
 
     if ( !l_initialized ) {
-	syslog( LOG_ERR, "cookiefs_eat_cookie: not initialized" );
+	syslog( LOG_ERR, "cookiedb_mysql_eat_cookie: not initialized" );
 	return( -1 );
     }
     
-    if (( rc = cookiefs_read( cookie, &ci )) < 0 ) {
-	syslog( LOG_ERR, "cookiefs_eat_cookie: cookiefs_read error: %s", cookie );
+    if (( rc = cookiedb_mysql_read( cookie, &ci )) < 0 ) {
+	syslog( LOG_ERR, "cookiedb_mysql_eat_cookie: cookiedb_mysql_read error: %s", cookie );
 	return( -1 );
     }
     
@@ -806,15 +839,15 @@ delete_stuff:
   /* remove krb5 ticket and login cookie */
     if ( *ci.ci_krbtkt != '\0' ) {
 	if ( unlink( ci.ci_krbtkt ) != 0 ) {
-	    syslog( LOG_ERR, "cookiefs_eat_cookie: unlink krbtgt %s: %m", ci.ci_krbtkt );
+	    syslog( LOG_ERR, "cookiedb_mysql_eat_cookie: unlink krbtgt %s: %m", ci.ci_krbtkt );
 	}
     }
 
-    return( cookiefs_delete( cookie ) );
+    return( cookiedb_mysql_delete( cookie ) );
 }
 
     int
-cookiefs_touch( char *cookie )
+cookiedb_mysql_touch( char *cookie )
 {
   char *query = NULL;
   int result;
@@ -822,21 +855,21 @@ cookiefs_touch( char *cookie )
                                 "WHERE login_cookie='%s'";
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_touch: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_touch: not initialized" );
     return( -1 );
   }
 
     /* +10 for length of MAXINT as a string; -5 for "%lu%s"; +1 for NUL */
     query = malloc(strlen(update_template) + strlen(cookie) + sizeUl - 5 + sizeNul);
     if ( !query ) {
-      syslog( LOG_ERR, "cookiefs_touch: unable to malloc" );
+      syslog( LOG_ERR, "cookiedb_mysql_touch: unable to malloc" );
       return( -1 );
     }
     sprintf(query, update_template, time(NULL), cookie);
     result = mysql_query( l_sql, query );
     if ( result ) {
       syslog( LOG_ERR, 
-	      "cookiefs_touch: failed to execute '%s': %d", query, mysql_errno(l_sql) );
+	      "cookiedb_mysql_touch: failed to execute '%s': %d", query, mysql_errno(l_sql) );
       free(query);
       return ( -1 );
     }
@@ -847,7 +880,7 @@ cookiefs_touch( char *cookie )
 }
 
     int
-cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
+cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
 {
   char *query = NULL;
   int result;
@@ -866,7 +899,7 @@ cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
   const char *template;
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_touch_factor: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_touch_factor: not initialized" );
     return( -1 );
   }
 
@@ -892,7 +925,7 @@ cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
 		 strlen(lcookie) + 
 		 strlen(factor) - 4 + sizeNul);
     if ( !query ) {
-      syslog( LOG_ERR, "cookiefs_touch_factor: unable to malloc" );
+      syslog( LOG_ERR, "cookiedb_mysql_touch_factor: unable to malloc" );
       return( -1 );
     }
 
@@ -900,7 +933,7 @@ cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
     result = mysql_query( l_sql, query );
     if ( result ) {
 	syslog( LOG_ERR, 
-		"cookiefs_touch_factor: failed to execute '%s': %d", 
+		"cookiedb_mysql_touch_factor: failed to execute '%s': %d", 
 		query,
 		mysql_errno( l_sql ) );
 	free(query);
@@ -915,7 +948,7 @@ cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
 /* return 0 on success (nothing deleted), 1 on success (something deleted),
  * -1 on error */
     int
-cookiefs_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
+cookiedb_mysql_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
 {
   char *query = NULL;
   int ret = 0;
@@ -932,21 +965,21 @@ cookiefs_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
       "DELETE FROM factor_timeouts WHERE factor='%s' AND login_cookie='%s'";
 
   if ( !l_initialized ) {
-    syslog( LOG_ERR, "cookiefs_idle_out_factors: not initialized" );
+    syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: not initialized" );
     return( -1 );
   }
 
   /* -4 for the %s, +1 for the null terminator. */
   query = malloc(strlen(select_template) + strlen(lcookie) + strlen(factor) - 4 + sizeNul);
   if ( !query ) {
-    syslog( LOG_ERR, "cookiefs_idle_out_factors: unable to malloc" );
+    syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: unable to malloc" );
     return( -1 );
   }
   sprintf(query, select_template, lcookie, factor);
   result = mysql_query( l_sql, query );
   if ( result ) {
     syslog( LOG_ERR, 
-	    "cookiefs_idle_out_factors: failed to execute query %s: %d", 
+	    "cookiedb_mysql_idle_out_factors: failed to execute query %s: %d", 
 	    query,
 	    mysql_errno( l_sql ) );
     free(query);
@@ -957,7 +990,7 @@ cookiefs_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
 
   sql_data = mysql_use_result( l_sql );
   if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiefs_idle_out_factors: mysql_use_result failed" );
+    syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: mysql_use_result failed" );
     return( -1 );
   }
 
@@ -981,7 +1014,7 @@ cookiefs_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
 		     strlen(delete_these[num_to_delete-1]) + 
 		     strlen(lcookie) - 4 + sizeNul);
       if ( !query ) {
-	  syslog( LOG_ERR, "cookiefs_idle_out_factors: unable to malloc" );
+	  syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: unable to malloc" );
 	  return( -1 );
       }
       sprintf(query, 
@@ -993,7 +1026,7 @@ cookiefs_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
       result = mysql_query( l_sql, query );
       if ( result ) {
 	  syslog( LOG_ERR, 
-		  "cookiefs_idle_out_factors: failed to execute query %s: %d", 
+		  "cookiedb_mysql_idle_out_factors: failed to execute query %s: %d", 
 		  query,
 		  mysql_errno( l_sql ) );
 	  free(query);

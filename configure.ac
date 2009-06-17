@@ -46,6 +46,18 @@ AC_ARG_WITH(cosignkey, AC_HELP_STRING([--with-cosignkey=FILE], [default cosign
 key file location]), cosignkey="$withval", cosignkey="/var/cosign/certs/key.pem" )
 AC_SUBST(cosignkey)
 
+AC_ARG_ENABLE(cookiefs-type, 
+              AC_HELP_STRING([--enable-cookiefs-type[=state type]], [choose cookiefs type. file (default) or mysql]), 
+	      [ if test "x$enableval" = "xfile" ; then 
+	          cookiefs_file="cookiefs"
+                elif test "x$enableval" = "xmysql" ; then
+		  cookiefs_file="cookiefs-mysql"
+                else 
+                  echo "Error: unknown cookiefs type"
+                  exit -1
+                fi ] )
+AC_SUBST(cookiefs_file)
+
 AC_ARG_WITH(frienddbhost, AC_HELP_STRING([--with-frienddbhost=NAME], [name of host running friend's mysql db]), frienddbhost="$withval", frienddbhost="localhost" )
 AC_SUBST(frienddbhost)
 

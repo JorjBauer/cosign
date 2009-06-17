@@ -12,16 +12,18 @@ struct cinfo {
     time_t      ci_itime;
 };
 
-int cookiefs_init( char *, int );
-void cookiefs_destroy( );
-int cookiefs_validate( char *,int, int );
-int cookiefs_logout( char * );
-int cookiefs_read( char *, struct cinfo * );
-int cookiefs_write_login( char *, struct cinfo * );
-int cookiefs_register( char *, char *, char *[], int );
-int cookiefs_service_to_login( char *, char * );
-int cookiefs_delete( char * );
-int cookiefs_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
-int cookiefs_touch( char * );
-int cookiefs_touch_factor( char *, char *, int );
-int cookiefs_idle_out_factors( char *, char *, unsigned int );
+struct cfs_funcs {
+  int (*f_init)(char *, int );
+  void (*f_destroy)( );
+  int (*f_validate)( char *, int, int );
+  int (*f_logout)( char * );
+  int (*f_read) ( char *, struct cinfo * );
+  int (*f_write) ( char *, struct cinfo * );
+  int (*f_register) (char *, char *, char *[], int );
+  int (*f_service_to_login) ( char *, char * );
+  int (*f_delete) ( char * );
+  int (*f_eat) ( char *, struct timeval 8, time_t *, int *, int, int, int );
+  int (*f_touch) ( char * );
+  int (*f_touch_factor) ( char *, char *, int );
+  int (*f_idle_out_factors) ( char *, char *, unsigned int );
+};

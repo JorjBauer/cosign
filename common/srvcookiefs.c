@@ -22,6 +22,38 @@ static char l_prefix[ MAXPATHLEN ];
 static int l_hashlen;
 static int l_initialized = 0;
 
+/* Forward declarations */
+int cookiefs_init( char *, int );
+void cookiefs_destroy( );
+int cookiefs_validate( char *,int, int );
+int cookiefs_logout( char * );
+int cookiefs_read( char *, struct cinfo * );
+int cookiefs_write_login( char *, struct cinfo * );
+int cookiefs_register( char *, char *, char *[], int );
+int cookiefs_service_to_login( char *, char * );
+int cookiefs_delete( char * );
+int cookiefs_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
+int cookiefs_touch( char * );
+int cookiefs_touch_factor( char *, char *, int );
+int cookiefs_idle_out_factors( char *, char *, unsigned int );
+
+/* Dispatch table */
+struct cfs_funcs file_cfs = { cookiefs_init,
+			      cookiefs_destroy,
+			      cookiefs_validate,
+			      cookiefs_logout,
+			      cookiefs_read,
+			      cookiefs_write_login,
+			      cookiefs_register,
+			      cookiefs_service_to_login,
+			      cookiefs_delete,
+			      cookiefs_eat,
+			      cookiefs_touch,
+			      cookiefs_touch_factor,
+			      cookiefs_idle_out_factors };
+
+struct cfs_funcs *cookiefs = file_cfs;
+
     static int
 implode_factors( char *in[], int howmany, char *out, int out_length)
 {

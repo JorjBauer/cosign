@@ -481,7 +481,7 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	exit( 1 );
     }
 
-    if ( !cookiefs_init( NULL, hashlen ) ) {
+    if ( !cookiefs->f_init( NULL, hashlen ) ) {
       syslog( LOG_ERR, "do_dir: cookiefs_init error" );
       return;
     }
@@ -492,7 +492,7 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	if ( strncmp( de->d_name, "cosign=", 7 ) == 0 ) {
 	    login_total++;
 
-	    if (( rc = cookiefs_eat_cookie( de->d_name, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+	    if (( rc = cookiefs->f_eat_cookie( de->d_name, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
 	      syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", de->d_name );
 		continue;
 	    }
@@ -512,17 +512,17 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	    }
 	} else if ( strncmp( de->d_name, "cosign-", 7 ) == 0 ) {
 	    service_total++;
-	    if ( cookiefs_service_to_login( de->d_name, login ) != 0 ) {
+	    if ( cookiefs->f_service_to_login( de->d_name, login ) != 0 ) {
 		continue;
 	    }
 
-	    if (( rc = cookiefs_eat_cookie( login, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+	    if (( rc = cookiefs->f_eat_cookie( login, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
 		syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", login );
 		continue;
 	    }
 	    if ( rc == 0 ) {
 		login_gone++;
-		if ( cookiefs_delete( login ) != 0 ) {
+		if ( cookiefs->f_delete( login ) != 0 ) {
 		    syslog( LOG_ERR, "%s: 12: %m", login );
 		}
 		service_gone++;
@@ -532,5 +532,5 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	}
     }
     closedir( dirp );
-    cookiefs_destroy();
+    cookiefs->f_destroy();
 }

@@ -300,7 +300,7 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
     }
 
-    if ( cookiefs_read( av[ 1 ], &old_ci ) == 0 ) {
+    if ( cookiefs->f_read( av[ 1 ], &old_ci ) == 0 ) {
 	addinfo = 1;
 	if ( old_ci.ci_state == 0 ) {
 	    syslog( LOG_ERR,
@@ -409,7 +409,7 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	already_krb = 1;
     }
 
-    if ( ( err = cookiefs_write_login( av[ 1 ], &new_ci ) ) != 0 ) {
+    if ( ( err = cookiefs->f_write( av[ 1 ], &new_ci ) ) != 0 ) {
 	syslog( LOG_ERR, "f_login: cookiefs_write_login failed: %d", err );
 	snet_writef( sn, "%d LOGIN Syntax Error: Bad File Format\r\n", 504 );
 	return( err );
@@ -593,7 +593,7 @@ f_time( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
 
 	total++;
-	if ( cookiefs_validate( av[ 0 ], atoi( av[ 1 ] ), 
+	if ( cookiefs->f_validate( av[ 0 ], atoi( av[ 1 ] ), 
 				atoi( av[ 2 ] ) ) < 0 ) {
 	    /* record a missing cookie here */
 	    fail++;
@@ -630,7 +630,7 @@ f_logout( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( cookiefs_read( av[ 1 ], &ci ) != 0 ) {
+    if ( cookiefs->f_read( av[ 1 ], &ci ) != 0 ) {
 	syslog( LOG_ERR, "f_logout: cookiefs_read" );
 	snet_writef( sn, "%d LOGOUT error: Sorry\r\n", 513 );
 	return( 1 );
@@ -643,7 +643,7 @@ f_logout( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( cookiefs_logout( av[ 1 ] ) < 0 ) {
+    if ( cookiefs->f_logout( av[ 1 ] ) < 0 ) {
 	syslog( LOG_ERR, "f_logout: %s: %m", path );
 	return( -1 );
     }
@@ -682,7 +682,7 @@ f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( cookiefs_read( av[ 1 ], &ci ) != 0 ) {
+    if ( cookiefs->f_read( av[ 1 ], &ci ) != 0 ) {
 	syslog( LOG_ERR, "f_register: unable to read cookie %s", av[ 1 ] );
 	snet_writef( sn, "%d REGISTER error: Sorry\r\n", 523 );
 	return( 1 );
@@ -708,7 +708,7 @@ f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	snet_writef( sn, "%d REGISTER: Idle logged out\r\n", 422 );
-	if ( cookiefs_logout( av[ 1 ] ) < 0 ) {
+	if ( cookiefs->f_logout( av[ 1 ] ) < 0 ) {
 	    syslog( LOG_ERR, "f_register: %s: %m", av[ 1 ] );
 	    return( -1 );
 	}
@@ -717,12 +717,12 @@ f_register( SNET *sn, int ac, char *av[], SNET *pushersn )
 
     if ( ac == 4 ) {
 	/* Registrations that don't provide factor lists use this */
-	if ( ( rc = cookiefs_register( av[ 1 ], av[ 3 ], NULL, 0  ) ) < 0 ) {
+	if ( ( rc = cookiefs->f_register( av[ 1 ], av[ 3 ], NULL, 0  ) ) < 0 ) {
 	    return( -1 );
 	}
     } else {
 	/* Some factors were also provided; pass them along */
-	if ( ( rc = cookiefs_register( av[ 1 ], av[ 3 ], &av[ 4 ], ac - 4 ) ) < 0 ) {
+	if ( ( rc = cookiefs->f_register( av[ 1 ], av[ 3 ], &av[ 4 ], ac - 4 ) ) < 0 ) {
 	    return( -1 );
 	}
     }
@@ -871,7 +871,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
 
 	status = 231;
-	if ( cookiefs_service_to_login( av[ 1 ], login ) != 0 ) {
+	if ( cookiefs->f_service_to_login( av[ 1 ], login ) != 0 ) {
 	    if (( rate = rate_tick( &checkunknown )) != 0.0 ) {
 		syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 			inet_ntoa( cosign_sin.sin_addr), rate );
@@ -895,7 +895,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
  reread:
-    if ( cookiefs_read( lookup, &ci ) != 0 ) {
+    if ( cookiefs->f_read( lookup, &ci ) != 0 ) {
 	if (( rate = rate_tick( &checkunknown )) != 0.0 ) {
 	    syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 		    inet_ntoa( cosign_sin.sin_addr), rate);
@@ -934,7 +934,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 		    inet_ntoa( cosign_sin.sin_addr), rate);
 	}
 	snet_writef( sn, "%d CHECK: Idle logged out\r\n", 431 );
-	if ( cookiefs_logout( lookup ) < 0 ) {
+	if ( cookiefs->f_logout( lookup ) < 0 ) {
 	    syslog( LOG_ERR, "f_check: %s: %m", lookup );
 	    return( -1 );
 	}
@@ -945,7 +945,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
      * timed out, then destroy the login session as well. */
     did_il = 0;
     for ( il = idlelist; il; il = il->il_next ) {
-	result = cookiefs_idle_out_factors( lookup, 
+	result = cookiefs->f_idle_out_factors( lookup, 
 					    il->il_factor,
 					    il->il_timeout );
 	if ( result < 0 ) {
@@ -963,14 +963,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
     /* prevent idle out if we are actually using it */
-    cookiefs_touch( lookup );
+    cookiefs->f_touch( lookup );
 
 
     /* Touch all of the related cookies if status == 231 (checking svc). But 
      * don't touch any cookies that didn't already exist! */
     if ( status == 231 ) {
 	for ( i=2; i<ac; i++ ) {
-	    cookiefs_touch_factor( lookup, av[ i ], 1 );
+	    cookiefs->f_touch_factor( lookup, av[ i ], 1 );
 	}
     }
 
@@ -1077,12 +1077,12 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( cookiefs_service_to_login( av[ 1 ], login ) != 0 ) {
+    if ( cookiefs->f_service_to_login( av[ 1 ], login ) != 0 ) {
 	snet_writef( sn, "%d RETR: cookie not in db!\r\n", 543 );
 	return( 1 );
     }
 
-    if ( cookiefs_read( login, &ci ) != 0 ) {
+    if ( cookiefs->f_read( login, &ci ) != 0 ) {
 	snet_writef( sn, "%d RETR: Who me? Dunno.\r\n", 544 );
 	return( 1 );
     }
@@ -1105,7 +1105,7 @@ f_retr( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	snet_writef( sn, "%d RETR: Idle logged out\r\n", 441 );
-	if ( cookiefs_logout( login ) < 0 ) {
+	if ( cookiefs->f_logout( login ) < 0 ) {
 	    syslog( LOG_ERR, "f_retr: %s: %m", login );
 	    return( -1 );
 	}
@@ -1155,7 +1155,7 @@ retr_proxy( SNET *sn, char *login, SNET *pushersn )
 	    return( -1 );
 	}
 
-	if (( rc = cookiefs_register( login, cbuf, NULL, 0 )) < 0 ) {
+	if (( rc = cookiefs->f_register( login, cbuf, NULL, 0 )) < 0 ) {
 	  continue;
 	}
 
@@ -1247,7 +1247,7 @@ command( int fd, SNET *pushersn )
     double				rate;
     struct protoent			*proto;
 
-    if ( cookiefs_init( NULL, hashlen ) ) {
+    if ( cookiefs->f_init( NULL, hashlen ) ) {
       syslog( LOG_ERR, "command: cookiefs_init error" );
       exit( -1 );
     }
@@ -1343,9 +1343,9 @@ command( int fd, SNET *pushersn )
     }
 
  exit1:
-    cookiefs_destroy();
+    cookiefs->f_destroy();
     exit( 1 );
  exit0:
-    cookiefs_destroy();
+    cookiefs->f_destroy();
     exit( 0 );
 }
