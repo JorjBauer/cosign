@@ -35,10 +35,10 @@ CFLAGS=         ${DEFS} ${OPTOPTS} @CFLAGS@ ${INCPATH}
 
 SRC= daemon.c command.c logname.c pusher.c mnet.c
 MONSTER = monster.c logname.c mnet.c
-MOBJ = monster.o ../common/@COOKIEFS_FILE@.o logname.o mnet.o ../common/argcargv.o \
+MOBJ = monster.o ../common/@cookiefs_file@.o logname.o mnet.o ../common/argcargv.o \
 	../common/config.o  ../common/fbase64.o ../common/mkcookie.o \
 	../common/wildcard.o ../version.o
-COSIGNOBJ= daemon.o command.o ../common/@COOKIEFS_FILE@.o logname.o \
+COSIGNOBJ= daemon.o command.o ../common/@cookiefs_file@.o logname.o \
 	pusher.o mnet.o ../common/argcargv.o ../common/fbase64.o \
 	../common/config.o ../common/mkcookie.o ../common/rate.o \
 	../common/wildcard.o ../version.o
