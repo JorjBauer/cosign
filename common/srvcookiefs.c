@@ -52,7 +52,7 @@ struct cfs_funcs file_cfs = { cookiefs_init,
 			      cookiefs_touch_factor,
 			      cookiefs_idle_out_factors };
 
-struct cfs_funcs *cookiefs = file_cfs;
+struct cfs_funcs *cookiefs = &file_cfs;
 
     static int
 implode_factors( char *in[], int howmany, char *out, int out_length)
@@ -746,7 +746,7 @@ cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
 	return( -1 );
     }
     
-    if ( mkcookiepath( l_prefix, l_hashlen, cookie, path, sizeof(path) ) ) {
+    if ( mkcookiepath( l_prefix, l_hashlen, lcookie, path, sizeof(path) ) ) {
 	syslog( LOG_ERR, "cookiefs_touch_factor: mkcookiepath error" );
 	return( -1 );
     }
