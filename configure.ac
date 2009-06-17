@@ -26,6 +26,14 @@ AC_ARG_ENABLE(krb, AC_HELP_STRING([--enable-krb=path_to_krb], [enable kerberos f
 
 AC_ARG_ENABLE(mysql, AC_HELP_STRING([--enable-mysql=path_to_mysql], [enable mysql for guest login support in the cgi]), CHECK_LIBMYSQL, AC_MSG_RESULT( mysql not enabled))
 
+AC_ARG_ENABLE(friend, 
+              AC_HELP_STRING([--enable-friend], [enable 'friend' mysql database in the CGI. Requires mysql.]),
+	      [ SQLDEFS=-DSQL_FRIEND ])
+AC_SUBST(SQLDEFS)
+
+
+AC_ARG_WITH(friend, AC_HELP_STRING([--enable-friend], [enable friend logins using mysql in the cgi]), CHECK_FRIEND, AC_MSG_RESULT( friend not enabled ))
+
 AC_ARG_WITH(gss, AC_HELP_STRING([--with-gss], [enable apache filter
 to set up GSSAPI ]), CHECK_GSS, AC_MSG_RESULT( GSSAPI not enabled))
 
