@@ -49,9 +49,9 @@ AC_SUBST(cosignkey)
 AC_ARG_ENABLE(cookiefs-type, 
               AC_HELP_STRING([--enable-cookiefs-type[=state type]], [choose cookiefs type. file (default) or mysql]), 
 	      [ if test "x$enableval" = "xfile" ; then 
-	          cookiefs_file="cookiefs"
+	          cookiefs_file="srvcookiefs"
                 elif test "x$enableval" = "xmysql" ; then
-		  cookiefs_file="cookiefs-mysql"
+		  cookiefs_file="srvcookiefs-mysql"
                 else 
                   echo "Error: unknown cookiefs type"
                   exit -1
