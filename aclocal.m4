@@ -168,8 +168,13 @@ AC_DEFUN([CHECK_APACHE_1],
 AC_DEFUN([CHECK_LIBMYSQL],
 [
     AC_MSG_CHECKING(for mysql)
-    mysqldirs="/usr /usr/local/mysql /usr/lib/mysql /usr/mysql \
+    if test -d "$enableval"; then
+        echo "looking for mysql in $enableval"
+        mysqldirs="$enableval"
+    else
+        mysqldirs="/usr /usr/local/mysql /usr/lib/mysql /usr/mysql \
             /usr/pkg /usr/local /usr"
+    fi
     AC_CACHE_VAL(ac_cv_path_mysql,[
         for mysqldir in $mysqldirs; do
             if test -f "$mysqldir/include/mysql/mysql.h"; then

@@ -125,6 +125,55 @@ unsigned long get_ul( MYSQL_ROW *row, int idx )
 }
 
 static
+unsigned long escape( const char *from, unsigned int from_len,
+		      char *to, unsigned int to_len )
+{
+  if ( to_len < from_len*2+1 ) {
+    /* Failure to copy. The MySQL escape method requires a buffer this size. */
+    return( 0 );
+  }
+  return mysql_real_escape_string( l_sql, to, from, from_len );
+}
+
+static
+MYSQL_STMT *prepare( const char *query, MYSQL_BIND *bind, int num_binds )
+{
+  MYSQL_STMT *q = NULL;
+
+  q = mysql_stmt_init( l_sql );
+  if ( q == NULL ) {
+    syslog( LOG_ERR, "prepare: unable to init stmt" );
+    return( NULL );
+  }
+
+  if ( mysql_stmt_prepare( q, query, strlen(query) ) ) {
+    syslog( LOG_ERR, "prepare: mysql_stmt_prepare failed: %s", 
+	    mysql_stmt_error( q ) );
+    goto error;
+  }
+
+  /* Validate # of params */
+  if ( mysql_stmt_param_count( q ) != num_binds ) {
+    syslog( LOG_ERR, "prepare: param validation error" );
+    goto error;
+  }
+
+  if ( mysql_stmt_bind_param( q, bind ) ) {
+    syslog( LOG_ERR, "prepare: mysql_stmt_bind_param() failed: %s",
+	    mysql_stmt_error( q ) );
+    goto error;
+  }
+
+  return( q );
+ error:
+  if ( q ) {
+    mysql_stmt_close( q );
+  }
+  return( NULL );
+}
+
+
+static
 int record_exists_by_single_value( const char *template, const char *value )
 {
   char *query = NULL;
@@ -280,51 +329,57 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
   MYSQL_RES *sql_data = NULL;
   MYSQL_ROW sql_row;
   const char *select_template = "SELECT ci_itime,ci_state FROM login_cookies "
-                                "WHERE login_cookie='%s'";
-  const char *update_template = "UPDATE login_cookies SET ci_itime=%lu "
-                                "WHERE login_cookie='%s'";
+                                "WHERE login_cookie=?";
+  const char *update_template = "UPDATE login_cookies SET ci_itime=? "
+                                "WHERE login_cookie=?";
   char *query = NULL;
   int sql_state = kLOGGED_OUT;
+
+  MYSQL_STMT *q = NULL;
+  unsigned long str_length;
+  MYSQL_BIND bind[ 2 ];
+  char cookie_param[ 256 ];
+  unsigned long int time_param;
+
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_validate: not initialized" );
     return( -1 );
   }
-  /* If the cookie contains an apostrophe, that's a problem. */
-  if ( strstr(cookie, "'") ) {
-    syslog( LOG_ERR, "cookiedb_mysql_validate: invalid cookie value" );
-    return( -1 );
+
+  memset( bind, 0, sizeof( bind ) );
+  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
+  bind[ 0 ].buffer = (char *)cookie_param;
+  bind[ 0 ].buffer_length = sizeof( cookie_param );
+  bind[ 0 ].is_null = 0;
+  bind[ 0 ].length = &str_length;
+
+  q = prepare( select_template, bind, 1 );
+  if ( !q ) {
+    syslog( LOG_ERR, "cookiedb_mysql_validate: unable to prepare select" );
+    goto error;
   }
 
-  /* -2 for the %s, +1 for the null terminator. */
-  query = malloc(strlen(select_template) + strlen(cookie) - 2 + sizeNul);
-  if ( !query ) {
-    syslog( LOG_ERR, "cookiedb_mysql_validate: unable to malloc" );
-    return( -1 );
+  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
+  str_length = strlen( cookie_param );
+
+  if ( mysql_stmt_execute( q ) ) {
+    syslog( LOG_ERR, "cookiedb_mysql_validate: "
+	    "mysql_stmt_execute() failed: %s",
+	    mysql_stmt_error( q ) );
+    goto error;
   }
-  sprintf(query, select_template, cookie);
-  result = mysql_query( l_sql, query );
-  if ( result ) {
-    syslog( LOG_ERR, 
-	    "cookiedb_mysql_validate: failed to execute query '%s': %d", 
-	    query,
-	    mysql_errno( l_sql ) );
-    free(query);
-    return ( -1 );
-  }
-  free(query);
-  query = NULL;
 
   sql_data = mysql_use_result( l_sql );
   if ( !sql_data ) {
     syslog( LOG_ERR, "cookiedb_mysql_validate: mysql_use_result failed" );
-    return( -1 );
+    goto error;
   }
 
   sql_row = mysql_fetch_row( sql_data );
   if ( !sql_row ) {
     mysql_free_result( sql_data );
-    return( 1 );
+    goto ret1;
   }
 
   record_timestamp = get_ul( &sql_row, kITIME );
@@ -339,22 +394,42 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
   */
 
   if ( record_timestamp < timestamp ) {
-    /* +10 for length of MAXINT as a string; -5 for "%lu%s"; +1 for NUL */
-    query = malloc(strlen(update_template) + strlen(cookie) + sizeUl - 5 + sizeNul);
-    if ( !query ) {
-      syslog( LOG_ERR, "cookiedb_mysql_validate: unable to malloc" );
-      return( -1 );
+
+    mysql_stmt_close( q );
+
+    memset( bind, 0, sizeof( bind ) );
+    bind[ 0 ].buffer_type = MYSQL_TYPE_LONG;
+    bind[ 0 ].buffer = (char *)&time_param;
+    bind[ 0 ].is_null = 0;
+    bind[ 0 ].length = 0;
+    bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
+    bind[ 1 ].buffer = (char *)cookie_param;
+    bind[ 1 ].buffer_length = sizeof( cookie_param );
+    bind[ 1 ].is_null = 0;
+    bind[ 1 ].length = &str_length;
+    q = prepare( update_template, bind, 2 );
+    if ( !q ) {
+      syslog( LOG_ERR, "cookiedb_mysql_validate: failed to prepare update" );
+      goto error;
     }
-    sprintf(query, update_template, timestamp, cookie);
+
+    strncpy( cookie_param, cookie, sizeof( cookie_param ) );
+    str_length = strlen( cookie_param );
+    time_param = timestamp;
+
+    if ( mysql_stmt_execute( q ) ) {
+      syslog( LOG_ERR, "cookiedb_mysql_validate: "
+	      "mysql_stmt_execute() failed: %s",
+	      mysql_stmt_error( q ) );
+      goto error;
+    }
+    
     result = mysql_query( l_sql, query );
     if ( result ) {
       syslog( LOG_ERR, 
 	      "cookiedb_mysql_validate: failed to execute '%s': %d", query, mysql_errno(l_sql) );
-      free(query);
-      return ( -1 );
+      goto error;
     }
-    free(query);
-    query = NULL;
   }
 
   /* if state==0 && the cookie's record doesn't indicate 'logged out', then
@@ -364,7 +439,18 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
     return cookiedb_mysql_logout( cookie );
   }
 
+  if ( q )
+    mysql_stmt_close( q );
   return( 0 );
+
+ ret1:
+  if ( q )
+    mysql_stmt_close( q );
+  return( 1 );
+ error:
+  if ( q ) 
+    mysql_stmt_close( q );
+  return( -1 );
 }
 
     int
@@ -954,7 +1040,7 @@ cookiedb_mysql_idle_out_factors( char *lcookie, char *factor, unsigned int secs)
   int ret = 0;
   int result;
   unsigned long timestamp;
-  unsigned char delete_these[ COSIGN_MAXFACTORS ] [ 256 ];
+  char delete_these[ COSIGN_MAXFACTORS ] [ 256 ];
   int num_to_delete = 0;
   MYSQL_RES *sql_data = NULL;
   MYSQL_ROW sql_row;
