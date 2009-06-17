@@ -90,12 +90,12 @@ struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
 			       cookiedb_mysql_register,
 			       cookiedb_mysql_service_to_login,
 			       cookiedb_mysql_delete,
-			       cookiedb_mysql_eat,
+			       cookiedb_mysql_eat_cookie,
 			       cookiedb_mysql_touch,
 			       cookiedb_mysql_touch_factor,
 			       cookiedb_mysql_idle_out_factors };
 
-struct cfs_funcs *cookiefs = mysql_cfs;
+struct cfs_funcs *cookiefs = &mysql_cfs;
 
 
 static

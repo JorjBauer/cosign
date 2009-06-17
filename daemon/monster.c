@@ -41,6 +41,8 @@ extern char	*cosign_version;
 
 int		login_total, login_sent, service_total, service_gone;
 
+extern struct cfs_funcs *cookiefs;
+
 static void (*logger)( char * ) = NULL;
 
 static void do_dir( char *, struct connlist *, struct timeval * );
@@ -492,7 +494,7 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	if ( strncmp( de->d_name, "cosign=", 7 ) == 0 ) {
 	    login_total++;
 
-	    if (( rc = cookiefs->f_eat_cookie( de->d_name, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+	    if (( rc = cookiefs->f_eat( de->d_name, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
 	      syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", de->d_name );
 		continue;
 	    }
@@ -516,7 +518,7 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 		continue;
 	    }
 
-	    if (( rc = cookiefs->f_eat_cookie( login, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
+	    if (( rc = cookiefs->f_eat( login, now, &itime, &state, loggedout_cache, idle_cache, hard_timeout )) < 0 ) {
 		syslog( LOG_ERR, "cookiefs_eat_cookie failure: %s", login );
 		continue;
 	    }

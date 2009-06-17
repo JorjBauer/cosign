@@ -22,7 +22,7 @@ struct cfs_funcs {
   int (*f_register) (char *, char *, char *[], int );
   int (*f_service_to_login) ( char *, char * );
   int (*f_delete) ( char * );
-  int (*f_eat) ( char *, struct timeval 8, time_t *, int *, int, int, int );
+  int (*f_eat) ( char *, struct timeval *, time_t *, int *, int, int, int );
   int (*f_touch) ( char * );
   int (*f_touch_factor) ( char *, char *, int );
   int (*f_idle_out_factors) ( char *, char *, unsigned int );

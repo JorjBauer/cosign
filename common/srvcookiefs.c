@@ -47,7 +47,7 @@ struct cfs_funcs file_cfs = { cookiefs_init,
 			      cookiefs_register,
 			      cookiefs_service_to_login,
 			      cookiefs_delete,
-			      cookiefs_eat,
+			      cookiefs_eat_cookie,
 			      cookiefs_touch,
 			      cookiefs_touch_factor,
 			      cookiefs_idle_out_factors };

@@ -113,6 +113,8 @@ int	replicated = 0; /* we are not talking to ourselves */
 int	protocol = 0; 
 int	ncommands = sizeof( unauth_commands ) / sizeof(unauth_commands[ 0 ] );
 
+extern struct cfs_funcs *cookiefs;
+
     static int
 remove_imploded_element( char *in, int sz, char *to_remove )
 {

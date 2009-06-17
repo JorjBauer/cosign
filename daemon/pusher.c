@@ -35,6 +35,8 @@ static struct connlist	*replhead = NULL;
 static int		reconfig = 0;
 static int		childsig = 0;
 
+extern struct cfs_funcs *cookiefs;
+
 static void     (*logger)( char * ) = NULL;
 static void	pusherhup( int );
 static void	pusherchld( int );
