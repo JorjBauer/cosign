@@ -8,11 +8,23 @@
 #include "mkcookie.h"
 
 /*
-  gcc srvcookietest.c srvcookiefs.c mkcookie.c fbase64.c -lcrypto
+  gcc -Wall srvcookietest.c srvcookiefs.c mkcookie.c fbase64.c -lcrypto
  
-  gcc -I/sw/include/mysql -L/sw/lib/mysql srvcookietest.c \
+  gcc -Wall -I/sw/include/mysql -L/sw/lib/mysql srvcookietest.c \
       srvcookiefs-mysql.c mkcookie.c fbase64.c -lcrypto -lmysqlclient
  */
+
+extern struct cfs_funcs *cookiefs;
+
+char                    *mysql_user = "cosign";
+char                    *mysql_pass = "cosign";
+char                    *mysql_database = "cosign";
+char                    *mysql_server = "localhost";
+char                    *mysql_tlskey = "";
+char                    *mysql_tlscert = "";
+char                    *mysql_tlsca = "";
+int                     mysql_usessl = 0;
+int                     mysql_portnum = 0;
 
 int compare_ci ( struct cinfo *a, struct cinfo *b )
 {
@@ -37,6 +49,21 @@ int compare_ci ( struct cinfo *a, struct cinfo *b )
   return 1;
 }
 
+void print_ci_diffs(struct cinfo *a, struct cinfo *b )
+{
+    printf("v: %d/%d; s: %d/%d; ip: %s/%s; ip_c: %s/%s; user: %s/%s; realm: %s/%s; ctime: %s/%s; itime: %lu/%lu; krbtkt: %s:%s\n", 
+    a->ci_version, b->ci_version,
+    a->ci_state, b->ci_state,
+    a->ci_ipaddr,b->ci_ipaddr,
+    a->ci_ipaddr_cur, b->ci_ipaddr_cur,
+    a->ci_user, b->ci_user,
+    a->ci_realm, b->ci_realm,
+    a->ci_ctime, b->ci_ctime,
+    a->ci_itime, b->ci_itime,
+    a->ci_krbtkt, b->ci_krbtkt );
+}
+
+
 int main(int argc, char *argv[])
 {
   int err;
@@ -46,17 +73,17 @@ int main(int argc, char *argv[])
   char login_buf[1024];
   struct cinfo ci;
   struct cinfo ci2;
-  struct cinfo ci3;
   time_t now;
   char now_char[1024];
+  char *factors[1] = { "testfactor" };
 
   openlog("srvcookietest", LOG_NDELAY|LOG_NOWAIT|LOG_PERROR, LOG_LOCAL1);
 
   mkdir("/tmp/cfstest", 0777);
   printf("Initializing cookiefs\n");
-  err = cookiefs_init("/tmp/cfstest/", 0);
+  err = cookiefs->f_init("/tmp/cfstest/", 0);
   if (err) {
-    printf("cookiefs_init returns %d\n", err);
+    printf("cookiefs->f_init returns %d\n", err);
     exit(-1);
   }
 
@@ -88,17 +115,17 @@ int main(int argc, char *argv[])
   strcpy(ci.ci_krbtkt, "/tmp/testfile1");
 
   printf("writing login session\n");
-  err = cookiefs_write_login( lcookie, &ci );
+  err = cookiefs->f_write( lcookie, &ci );
   if (err) {
-    printf("failed to cookiefs_write_login: %d\n", err);
+    printf("failed to cookiefs->f_write: %d\n", err);
     exit(-1);
   }
 
   printf("reading written login session and comparing\n");
   memset(&ci2, 0, sizeof(ci2));
-  err = cookiefs_read( lcookie, &ci2 );
+  err = cookiefs->f_read( lcookie, &ci2 );
   if (err) {
-    printf("failed to cookiefs_read: %d\n", err);
+    printf("failed to cookiefs->f_read: %d\n", err);
     exit(-1);
   }
   if (ci2.ci_version != 2 || ci2.ci_state != 1 ||
@@ -129,20 +156,23 @@ int main(int argc, char *argv[])
   }
 
   printf("checking for non-existent service cookie\n");
-  if ( cookiefs_read(scookie, &ci2) == 0 ) {
+  if ( cookiefs->f_read(scookie, &ci2) == 0 ) {
     printf("ERROR: read the cookie for %s? Haven't written it yet!\n", scookie);
     exit(-1);
   }
 
   printf("registering service cookie\n");
-  if ( cookiefs_register( lcookie, scookie ) != 0 ) {
-    printf("ERROR: unable to cookiefs_register\n");
+  if ( cookiefs->f_register( lcookie, scookie, factors, 1 ) != 0 ) {
+    printf("ERROR: unable to cookiefs->f_register\n");
     exit(-1);
   }
+  
+  /* Have to doctor ci's factor list to include the test factor we just registered. */
+  strcpy( ci.ci_realm, "TEST.NET.ISC.UPENN.EDU testfactor");
 
   printf("re-reading service cookie\n");
   memset(login_buf, 0, sizeof(login_buf));
-  if ( cookiefs_service_to_login( scookie, login_buf ) != 0 ) {
+  if ( cookiefs->f_service_to_login( scookie, login_buf ) != 0 ) {
     printf("Unable to translate from service to login\n");
     exit(-1);
   }
@@ -153,18 +183,19 @@ int main(int argc, char *argv[])
   }
 
   memset(&ci2, 0, sizeof(ci2));
-  if ( cookiefs_read( login_buf, &ci2 ) ) {
+  if ( cookiefs->f_read( login_buf, &ci2 ) ) {
     printf("ERROR: unable to re-read login cookie\n");
     exit(-1);
   }
 
   if ( ! compare_ci(&ci, &ci2) ) {
     printf( "ERROR: contents of service cookie read are incorrect\n" );
+    print_ci_diffs(&ci, &ci2);
     exit(-1);
   }
 
-  if ( cookiefs_validate( lcookie, (int)ci.ci_ctime, ci.ci_state ) ) {
-    printf("ERROR: cookiefs_validate failed\n");
+  if ( cookiefs->f_validate( lcookie, (int)ci.ci_ctime, ci.ci_state ) ) {
+    printf("ERROR: cookiefs->f_validate failed\n");
     exit(-1);
   }
 
@@ -172,11 +203,11 @@ int main(int argc, char *argv[])
   printf("preparing a touch test\n");
   sleep(2);
   now = time( NULL );
-  if ( cookiefs_touch( lcookie ) != 0 ) {
-    printf("ERROR: cookiefs_touch failed\n");
+  if ( cookiefs->f_touch( lcookie ) != 0 ) {
+    printf("ERROR: cookiefs->f_touch failed\n");
     exit(-1);
   }
-  if ( cookiefs_read( lcookie, &ci2 ) != 0 ) {
+  if ( cookiefs->f_read( lcookie, &ci2 ) != 0 ) {
     printf("ERROR: unable to read cookie\n");
     exit(-1);
   }
@@ -188,12 +219,12 @@ int main(int argc, char *argv[])
   }
 
   printf("testing logout\n");
-  if ( cookiefs_logout( lcookie ) != 0 ) {
+  if ( cookiefs->f_logout( lcookie ) != 0 ) {
     printf("ERROR: unable to cookiefs_logout\n");
     exit(-1);
   }
 
-  if (cookiefs_read(lcookie, &ci2 ) != 0 ) {
+  if (cookiefs->f_read(lcookie, &ci2 ) != 0 ) {
     printf("ERROR: unable to re-read cookie\n");
     exit(-1);
   }
@@ -207,12 +238,12 @@ int main(int argc, char *argv[])
     exit(-1);
   }
 
-  if ( cookiefs_delete( lcookie ) != 0 ) {
+  if ( cookiefs->f_delete( lcookie ) != 0 ) {
     printf("ERROR: unable to delete cookie\n");
     exit(-1);
   }
 
-  if ( cookiefs_read(lcookie, &ci2 ) == 0 ) {
+  if ( cookiefs->f_read(lcookie, &ci2 ) == 0 ) {
     printf("ERROR: was able to re-read cookie after a delete?\n");
     exit(-1);
   }
@@ -223,7 +254,7 @@ int main(int argc, char *argv[])
      cookie. 
 
   memset(login_buf, 0, sizeof(login_buf));
-  if ( cookiefs_service_to_login( scookie, login_buf ) == 0 ) {
+  if ( cookiefs->f_service_to_login( scookie, login_buf ) == 0 ) {
     printf("ERROR: was able to translate service to login after a delete?\n");
     exit(-1);
   }
@@ -231,7 +262,7 @@ int main(int argc, char *argv[])
 
   /*
     Did not test: 
-  int cookiefs_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
+  int cookiefs->f_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
   */
 
   printf("All tests passed.\n");

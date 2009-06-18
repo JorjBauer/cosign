@@ -18,6 +18,12 @@
 #include "mkcookie.h"
 #include "srvcookiefs.h"
 
+/* These three for COSIGN_MAXFACTORS. Shame we have to include openssl
+   for that! */
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include "config.h"
+
 static char l_prefix[ MAXPATHLEN ];
 static int l_hashlen;
 static int l_initialized = 0;
@@ -25,17 +31,17 @@ static int l_initialized = 0;
 /* Forward declarations */
 int cookiefs_init( char *, int );
 void cookiefs_destroy( );
-int cookiefs_validate( char *,int, int );
-int cookiefs_logout( char * );
-int cookiefs_read( char *, struct cinfo * );
-int cookiefs_write_login( char *, struct cinfo * );
+int cookiefs_validate( char[255],int, int );
+int cookiefs_logout( char[255] );
+int cookiefs_read( char[255], struct cinfo * );
+int cookiefs_write_login( char[255], struct cinfo * );
 int cookiefs_register( char *, char *, char *[], int );
-int cookiefs_service_to_login( char *, char * );
-int cookiefs_delete( char * );
-int cookiefs_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
-int cookiefs_touch( char * );
-int cookiefs_touch_factor( char *, char *, int );
-int cookiefs_idle_out_factors( char *, char *, unsigned int );
+int cookiefs_service_to_login( char[255], char[255] );
+int cookiefs_delete( char[255] );
+int cookiefs_eat_cookie( char [255], struct timeval *, time_t *, int *, int, int, int );
+int cookiefs_touch( char[255] );
+int cookiefs_touch_factor( char *, char[256], int );
+int cookiefs_idle_out_factors( char[255], char[256], unsigned int );
 
 /* Dispatch table */
 struct cfs_funcs file_cfs = { cookiefs_init,
@@ -53,6 +59,31 @@ struct cfs_funcs file_cfs = { cookiefs_init,
 			      cookiefs_idle_out_factors };
 
 struct cfs_funcs *cookiefs = &file_cfs;
+
+/* Take a space-separated list, and put them into the 255-byte elements 
+ * (preallocated by the caller) in out. Return # of factors placed there. 
+ * Works up to MAXFACTORS. */ 
+    static int
+explode_factors( char *in, char *out[] )
+{
+  char *tok;
+  char *a_factor;
+  int count;
+
+  if ( ! strstr( in, " " ) ) {
+    strcpy(out[ 0 ], in );
+    return 1;
+  }
+
+  count = 0;
+  for ( a_factor = strtok_r( in, " ", &tok );
+	a_factor != NULL;
+	a_factor = strtok_r( NULL, " ", &tok ) ) {
+    strcpy(out[ count++ ], a_factor );
+  }
+
+  return count;
+}
 
     static int
 implode_factors( char *in[], int howmany, char *out, int out_length)
@@ -75,6 +106,37 @@ implode_factors( char *in[], int howmany, char *out, int out_length)
     }
 
     return( 1 );
+}
+
+/* FIXME: make this check buffer lengths */
+    static void 
+append_all_factors( char *inout, char *factors[], int num_factors)
+{
+  char old_factors[ COSIGN_MAXFACTORS ][ 256 ];
+  char new_factor_list[ 256 ]; /* size of ci_realm */
+  int num_old_factors;
+  int i,j;
+
+  strncpy( new_factor_list, inout, sizeof( new_factor_list ) );
+
+  num_old_factors =  explode_factors( inout, (char **)old_factors );
+
+  for (i=0; i<num_factors; i++ ) {
+    for (j=0; j<num_old_factors; j++) {
+      if ( !strcmp( factors[ i ], old_factors[ j ] ) ) {
+	break;
+      }
+    }
+    if ( j == num_old_factors ) {
+      /* Have to add this one. */
+      if ( new_factor_list[ 0 ] ) {
+	strcat( new_factor_list, " " );
+      }
+      strcat( new_factor_list, factors[ i ] );
+    }
+  }
+
+  strcpy( inout, new_factor_list );
 }
 
 
@@ -432,7 +494,7 @@ cookiefs_init( char *prefix, int hashlen )
 }
 
     int
-cookiefs_validate( char *cookie, int timestamp, int state )
+cookiefs_validate( char cookie[255], int timestamp, int state )
 {
     char path[ MAXPATHLEN ];
     struct stat st;
@@ -468,7 +530,7 @@ cookiefs_validate( char *cookie, int timestamp, int state )
 }
 
     int
-cookiefs_logout( char *cookie )
+cookiefs_logout( char cookie[255] )
 {
     char path[ MAXPATHLEN ];
 
@@ -486,7 +548,7 @@ cookiefs_logout( char *cookie )
 }
 
     int
-cookiefs_read( char *cookie, struct cinfo *ci )
+cookiefs_read( char cookie[255], struct cinfo *ci )
 {
     char path[ MAXPATHLEN ];
 
@@ -505,7 +567,7 @@ cookiefs_read( char *cookie, struct cinfo *ci )
 
 
     int
-cookiefs_write_login( char *cookie, struct cinfo *ci )
+cookiefs_write_login( char cookie[255], struct cinfo *ci )
 {
     char tmppath[ MAXPATHLEN ], path[ MAXPATHLEN ];
     struct timeval tv;
@@ -584,6 +646,7 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
 {
     char lpath[ MAXPATHLEN ], spath[ MAXPATHLEN ];
     char imploded_factors[ 1024 ];
+    struct cinfo ci;
 
     if ( !l_initialized ) {
 	syslog( LOG_ERR, "cookiefs_register: not initialized" );
@@ -604,6 +667,21 @@ cookiefs_register( char *lcookie, char *scookie, char *factors[], int num_factor
     if ( factors && implode_factors( factors, num_factors, imploded_factors, sizeof( imploded_factors ) ) == 0 ) {
 	syslog( LOG_ERR, "cookiefs_register: implode_factors failed" );
 	return( -1 );
+    }
+
+    /* Construct the union of any factors we already knew about for the login 
+     * cookie, as well as any that might have just been registered. Write
+     * a new login cookie that contains all of them. */
+
+    if ( cookiefs_read( lcookie, &ci ) ) {
+      /* Syslogged its own message */
+      return( -1 );
+    }
+
+    append_all_factors( ci.ci_realm, factors, num_factors );
+    if ( cookiefs_write_login( lcookie, &ci ) ) {
+      /* Syslogged its own message */
+      return( -1 );
     }
 
     return( do_register( lcookie, lpath, spath, imploded_factors ) );
@@ -630,7 +708,7 @@ cookiefs_service_to_login( char *cookie, char *login )
 }
 
     int
-cookiefs_delete( char *cookie )
+cookiefs_delete( char cookie[255] )
 {
     char path[ MAXPATHLEN ];
     
@@ -648,7 +726,7 @@ cookiefs_delete( char *cookie )
 }
 
     int 
-cookiefs_eat_cookie( char *cookie, struct timeval *now, time_t *itime, 
+cookiefs_eat_cookie( char cookie[255], struct timeval *now, time_t *itime, 
 	      int *state, int loggedout_cache, int idle_cache, 
 	      int hard_timeout )
 {
@@ -736,7 +814,7 @@ cookiefs_touch( char *cookie )
 }
 
     int
-cookiefs_touch_factor( char *lcookie, char *factor, int update_only )
+cookiefs_touch_factor( char *lcookie, char factor[256], int update_only )
 {
     char path[ MAXPATHLEN ];
     struct stat st;

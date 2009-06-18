@@ -11,6 +11,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <utime.h>
+#include <assert.h>
 
 #include <openssl/rand.h>
 
@@ -40,17 +41,15 @@ extern char                    *mysql_tlsca;
 extern int                     mysql_usessl;
 extern int                     mysql_portnum;
 
-
-enum {
-  kITIME      = 0,
-  kSTATE      = 1,
-  kVERSION    = 2,
-  kIPADDR     = 3,
-  kIPADDR_CUR = 4,
-  kUSER       = 5,
-  kCTIME      = 6,
-  kKRBTKT     = 7
-};
+#define BIND_LONG(x, y ) {                      \
+    x.buffer_type = MYSQL_TYPE_LONG;		\
+    x.buffer = (char *)&y; }
+#define BIND_STRING(x, y, y_sz, z) {   \
+    assert( y_sz != 4 );               \
+    x.buffer_type = MYSQL_TYPE_STRING; \
+    x.buffer = (char *)y;              \
+    x.buffer_length = y_sz;            \
+    x.length = &z; }
 
 /* These should really be in the outer project. */
 enum {
@@ -61,17 +60,17 @@ enum {
 /* forward declarations */
 int cookiedb_mysql_init( char *, int );
 void cookiedb_mysql_destroy( );
-int cookiedb_mysql_validate( char *,int, int );
-int cookiedb_mysql_logout( char * );
-int cookiedb_mysql_read( char *, struct cinfo * );
-int cookiedb_mysql_write_login( char *, struct cinfo * );
-int cookiedb_mysql_register( char *, char *, char *[], int );
-int cookiedb_mysql_service_to_login( char *, char * );
-int cookiedb_mysql_delete( char * );
-int cookiedb_mysql_eat_cookie( char *, struct timeval *, time_t *, int *, int, int, int );
-int cookiedb_mysql_touch( char * );
-int cookiedb_mysql_touch_factor( char *, char *, int );
-int cookiedb_mysql_idle_out_factors( char *, char *, unsigned int );
+int cookiedb_mysql_validate( char[255],int, int );
+int cookiedb_mysql_logout( char[255] );
+int cookiedb_mysql_read( char[255], struct cinfo * );
+int cookiedb_mysql_write_login( char[255], struct cinfo * );
+int cookiedb_mysql_register( char[255], char[255], char *[], int );
+int cookiedb_mysql_service_to_login( char[255], char[255] );
+int cookiedb_mysql_delete( char[255] );
+int cookiedb_mysql_eat_cookie( char[255], struct timeval *, time_t *, int *, int, int, int );
+int cookiedb_mysql_touch( char[255] );
+int cookiedb_mysql_touch_factor( char *, char[256], int );
+int cookiedb_mysql_idle_out_factors( char[255], char[256], unsigned int );
 
 /* Dispatch table */
 struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
@@ -90,32 +89,6 @@ struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
 
 struct cfs_funcs *cookiefs = &mysql_cfs;
 
-
-static
-unsigned long long get_ull( MYSQL_ROW *row, int idx )
-{
-  unsigned long long ret = 0;
-  unsigned char *p = (unsigned char *) (*row)[idx];
-  while ( p && *p ) {
-    ret *= 10;
-    ret = ret + (*p) - '0';
-    p++;
-  }
-  return ret;
-}
-
-static
-unsigned long get_ul( MYSQL_ROW *row, int idx )
-{
-  unsigned long ret = 0;
-  unsigned char *p = (unsigned char *) (*row)[idx];
-  while ( p && *p ) {
-    ret *= 10;
-    ret = ret + (*p) - '0';
-    p++;
-  }
-  return ret;
-}
 
 static
 MYSQL_STMT *prepare( const char *query, MYSQL_BIND *bind, int num_binds )
@@ -159,18 +132,16 @@ static
 int record_exists_by_single_value( const char *template, const char *value )
 {
   unsigned long long num_rows;
-  MYSQL_RES *sql_data = NULL;
   MYSQL_STMT *q = NULL;
   unsigned long param_length;
   MYSQL_BIND bind[ 1 ];
   char param[ 256 ];
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)param;
-  bind[ 0 ].buffer_length = sizeof( param );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &param_length;
+  BIND_STRING( bind[ 0 ], param, sizeof( param ), param_length );
+
+  strncpy( param, value, sizeof( param ) );
+  param_length = strlen( param );
 
   q = prepare( template, bind, 1 );
   if ( !q ) {
@@ -178,23 +149,18 @@ int record_exists_by_single_value( const char *template, const char *value )
     return( -1 );
   }
 
-  strncpy( param, value, sizeof( param ) );
-  param_length = strlen( param );
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "record_exists: failed to execute query: %s",
 	    mysql_stmt_error( q ) );
     goto error;
   }
 
-  sql_data = mysql_store_result( l_sql );
-  if ( !sql_data ) {
+  if ( mysql_stmt_store_result( q ) ) {
     syslog( LOG_ERR, 
-	    "record_exists: mysql_use_result failed" );
+	    "record_exists: mysql_stmt_store_result failed" );
     goto error;
   }
-  num_rows = mysql_num_rows( sql_data );
-  mysql_free_result( sql_data );
-  sql_data = NULL;
+  num_rows = mysql_stmt_num_rows( q );
 
   mysql_stmt_close( q );
   return ( num_rows != 0 );
@@ -210,7 +176,6 @@ int record_exists_by_two_values( const char *template, const char *value1,
 				 const char *value2 )
 {
   unsigned long long num_rows;
-  MYSQL_RES *sql_data = NULL;
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 2 ];
   unsigned long param1_length;
@@ -219,16 +184,13 @@ int record_exists_by_two_values( const char *template, const char *value1,
   char param2[ 256 ];
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)param1;
-  bind[ 0 ].buffer_length = sizeof( param1 );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &param1_length;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 1 ].buffer = (char *)param2;
-  bind[ 1 ].buffer_length = sizeof( param2 );
-  bind[ 1 ].is_null = 0;
-  bind[ 1 ].length = &param2_length;
+  BIND_STRING( bind[ 0 ], param1, sizeof( param1 ), param1_length );
+  BIND_STRING( bind[ 1 ], param2, sizeof( param2 ), param2_length );
+
+  strncpy( param1, value1, sizeof( param1 ) );
+  param1_length = strlen( param1 );
+  strncpy( param2, value2, sizeof( param2 ) );
+  param2_length = strlen( param2 );
 
   q = prepare( template, bind, 2 );
   if ( !q ) {
@@ -236,26 +198,18 @@ int record_exists_by_two_values( const char *template, const char *value1,
     return( -1 );
   }
 
-  strncpy( param1, value1, sizeof( param1 ) );
-  param1_length = strlen( param1 );
-  strncpy( param2, value2, sizeof( param2 ) );
-  param2_length = strlen( param2 );
-
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "record_exists: failed to execute query: %s",
 	    mysql_stmt_error( q ) );
     goto error;
   }
 
-  sql_data = mysql_store_result( l_sql );
-  if ( !sql_data ) {
+  if ( mysql_stmt_store_result( q ) ) {
     syslog( LOG_ERR, 
-	    "record_exists: mysql_use_result failed" );
+	    "record_exists: mysql_stmt_store_result failed" );
     goto error;
   }
-  num_rows = mysql_num_rows( sql_data );
-  mysql_free_result( sql_data );
-  sql_data = NULL;
+  num_rows = mysql_stmt_num_rows( q );
 
   mysql_stmt_close( q );
   return ( num_rows != 0 );
@@ -326,11 +280,8 @@ cookiedb_mysql_init( char *prefix, int hashlen )
  * does not exist.
  */
     int
-cookiedb_mysql_validate( char *cookie, int timestamp, int state )
+cookiedb_mysql_validate( char cookie[255], int timestamp, int state )
 {
-  unsigned long record_timestamp;
-  MYSQL_RES *sql_data = NULL;
-  MYSQL_ROW sql_row;
   const char *select_template = "SELECT ci_itime,ci_state FROM login_cookies "
                                 "WHERE login_cookie=?";
   const char *update_template = "UPDATE login_cookies SET ci_itime=? "
@@ -340,9 +291,11 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
   MYSQL_STMT *q = NULL;
   unsigned long str_length;
   MYSQL_BIND bind[ 2 ];
-  char cookie_param[ 256 ];
   unsigned long int time_param;
-
+  MYSQL_BIND result[ 2 ];
+  unsigned long int itime_result;
+  char state_result[ 100 ];
+  unsigned long state_result_length;
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_validate: not initialized" );
@@ -350,20 +303,15 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)cookie_param;
-  bind[ 0 ].buffer_length = sizeof( cookie_param );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &str_length;
+  BIND_STRING( bind[ 0 ], cookie, 255, str_length );
+
+  str_length = strlen( cookie );
 
   q = prepare( select_template, bind, 1 );
   if ( !q ) {
     syslog( LOG_ERR, "cookiedb_mysql_validate: unable to prepare select" );
     goto error;
   }
-
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  str_length = strlen( cookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_validate: "
@@ -372,53 +320,51 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
     goto error;
   }
 
-  sql_data = mysql_use_result( l_sql );
-  if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiedb_mysql_validate: mysql_use_result failed" );
+  memset( result, 0, sizeof( result ) );
+  BIND_LONG  ( result[ 0 ], itime_result );
+  BIND_STRING( result[ 1 ], state_result, sizeof( state_result ), state_result_length );
+
+  if ( mysql_stmt_bind_result( q, result ) != 0 ) {
+    syslog( LOG_ERR,
+	    "cookiedb_mysql_validate: mysql_stmt_bind_result failed" );
     goto error;
   }
 
-  sql_row = mysql_fetch_row( sql_data );
-  if ( !sql_row ) {
-    mysql_free_result( sql_data );
+  /* Don't have to fetch the entire row set into memory; we just care about
+   * the first row. */
+
+  if ( mysql_stmt_fetch( q ) != 0 ) {
+    /* No rows match, or an error occurred. Future enhancement: see if it's
+     * MYSQL_NO_DATA, 1 (mysql_stmt_error() would be set), or 
+     * MYSQL_DATA_TRUNCATED. */
     goto ret1;
   }
 
-  record_timestamp = get_ul( &sql_row, kITIME );
+  sql_state = state_result[0] == 'l' ? kLOGGED_OUT : kACTIVE;
 
-  sql_state = sql_row[kSTATE][0] == 'l' ? kLOGGED_OUT : kACTIVE;
-  mysql_free_result( sql_data );
-
-  /* ... if the timestamp in the cookie <  timestamp, then we need to update 
-   * the record. So get the timestamp out of the query we just performed. The 
-   * original query was for just timestamp, and the timestamp was at index 0,
-   * so we don't have to do anything crazy to look up the proper index...
+ /* ... if the timestamp in the cookie <  timestamp, then we need to update 
+  * the record. So get the timestamp out of the query we just performed. The 
+  * original query was for just timestamp, and the timestamp was at index 0,
+  * so we don't have to do anything crazy to look up the proper index...
   */
-
-  if ( record_timestamp < timestamp ) {
-
+ 
+  if ( itime_result < timestamp ) {
     mysql_stmt_close( q );
-
+   
     memset( bind, 0, sizeof( bind ) );
-    bind[ 0 ].buffer_type = MYSQL_TYPE_LONG;
-    bind[ 0 ].buffer = (char *)&time_param;
-    bind[ 0 ].is_null = 0;
-    bind[ 0 ].length = 0;
-    bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-    bind[ 1 ].buffer = (char *)cookie_param;
-    bind[ 1 ].buffer_length = sizeof( cookie_param );
-    bind[ 1 ].is_null = 0;
-    bind[ 1 ].length = &str_length;
+    BIND_LONG  ( bind[ 0 ], time_param );
+    BIND_STRING( bind[ 1 ], cookie, 255, str_length );
+    
+    time_param = timestamp;
+    str_length = strlen( cookie );
+    
     q = prepare( update_template, bind, 2 );
     if ( !q ) {
       syslog( LOG_ERR, "cookiedb_mysql_validate: failed to prepare update" );
       goto error;
     }
-
-    strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-    str_length = strlen( cookie_param );
-    time_param = timestamp;
-
+    
+    
     if ( mysql_stmt_execute( q ) ) {
       syslog( LOG_ERR, "cookiedb_mysql_validate: "
 	      "mysql_stmt_execute() failed: %s",
@@ -426,18 +372,18 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
       goto error;
     }
   }
-
+  
   /* if state==0 && the cookie's record doesn't indicate 'logged out', then
      log 'em out.
   */
   if ( ( state == 0 ) && sql_state != kACTIVE) {
     return cookiedb_mysql_logout( cookie );
   }
-
+  
   if ( q )
     mysql_stmt_close( q );
   return( 0 );
-
+ 
  ret1:
   if ( q )
     mysql_stmt_close( q );
@@ -449,7 +395,7 @@ cookiedb_mysql_validate( char *cookie, int timestamp, int state )
 }
 
     int
-cookiedb_mysql_logout( char *cookie )
+cookiedb_mysql_logout( char cookie[255] )
 {
   const char *logout_template = "UPDATE login_cookies "
     "SET ci_state='logged out' "
@@ -457,7 +403,6 @@ cookiedb_mysql_logout( char *cookie )
   MYSQL_STMT *q = NULL;
   unsigned long str_length;
   MYSQL_BIND bind[ 1 ];
-  char cookie_param[ 256 ];
 
     if ( !l_initialized ) {
 	syslog( LOG_ERR, "cookiedb_mysql_logout: not initialized" );
@@ -465,20 +410,16 @@ cookiedb_mysql_logout( char *cookie )
     }
 
     memset( bind, 0, sizeof( bind ) );
-    bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-    bind[ 0 ].buffer = (char *)cookie_param;
-    bind[ 0 ].buffer_length = sizeof( cookie_param );
-    bind[ 0 ].is_null = 0;
-    bind[ 0 ].length = &str_length;
+    BIND_STRING( bind[ 0 ], cookie, 255, str_length );
+
+    str_length = strlen( cookie );
+
     q = prepare( logout_template, bind, 1 );
     if ( !q ) {
       syslog( LOG_ERR, 
 	      "cookiedb_mysql_logout: failed to prepare query" );
       goto error;
     }
-
-    strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-    str_length = strlen( cookie_param );
 
     if ( mysql_stmt_execute( q ) ) {
       syslog( LOG_ERR, "cookiedb_mysql_logout: "
@@ -500,7 +441,7 @@ cookiedb_mysql_logout( char *cookie )
 
 /* return 0 for success, -1 for error, and 1 if the cookie wasn't found */
     int
-cookiedb_mysql_read( char *cookie, struct cinfo *ci )
+cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
 {
   const char *read_template = "SELECT ci_itime, ci_state, ci_version, "
     "ci_ipaddr,ci_ipaddr_cur,ci_user,ci_ctime,ci_krbtkt "
@@ -508,15 +449,24 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
   const char *read_factor_template = "SELECT factor "
       "FROM factor_timeouts "
       "WHERE login_cookie=?";
-  MYSQL_RES *sql_data = NULL;
-  MYSQL_ROW sql_row;
   int sz, left;
   char *p;
   MYSQL_STMT *q = NULL;
-  unsigned long str_length;
   MYSQL_BIND bind[ 1 ];
-  char cookie_param[ 256 ];
-
+  unsigned long str_length;
+  MYSQL_BIND result[ 8 ];
+  unsigned long int itime_result;
+  char state_result[ 11 ]; // strlen("logged out") + 1
+  unsigned long state_result_length;
+  unsigned long int version_result;
+  unsigned long ipaddr_result_length;
+  unsigned long ipaddr_cur_result_length;
+  unsigned long user_result_length;
+  unsigned long ctime_result_length;
+  unsigned long krbtkt_result_length;
+  MYSQL_BIND factor_result[ 1 ];
+  char a_factor[ 256 ];
+  unsigned long factor_result_length;
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_read: not initialized" );
@@ -524,20 +474,16 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
   }
   
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)cookie_param;
-  bind[ 0 ].buffer_length = sizeof( cookie_param );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &str_length;
+  BIND_STRING( bind[ 0 ], cookie, 255, str_length );
+
+  str_length = strlen( cookie );
+  
   q = prepare( read_template, bind, 1 );
   if ( !q ) {
     syslog( LOG_ERR, 
 	    "cookiedb_mysql_read: failed to prepare" );
     goto error;
   }
-
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  str_length = strlen( cookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, 
@@ -546,36 +492,39 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
     goto error;
   }
 
-  sql_data = mysql_use_result( l_sql );
-  if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiedb_mysql_read: mysql_use_result failed" );
+  memset( result, 0, sizeof( result ) );
+  BIND_LONG  ( result[ 0 ], itime_result );
+  BIND_STRING( result[ 1 ], state_result, sizeof( state_result ), state_result_length );
+  BIND_LONG  ( result[ 2 ], version_result );
+  BIND_STRING( result[ 3 ], ci->ci_ipaddr, sizeof( ci->ci_ipaddr ), ipaddr_result_length );
+  BIND_STRING( result[ 4 ], ci->ci_ipaddr_cur, sizeof( ci->ci_ipaddr_cur ), ipaddr_cur_result_length );
+  BIND_STRING( result[ 5 ], ci->ci_user, sizeof( ci->ci_user ), user_result_length );
+  BIND_STRING( result[ 6 ], ci->ci_ctime, sizeof( ci->ci_ctime ), ctime_result_length );
+  BIND_STRING( result[ 7 ], ci->ci_krbtkt, sizeof( ci->ci_krbtkt ), krbtkt_result_length );
+
+  if ( mysql_stmt_bind_result( q, result ) != 0 ) {
+    syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_bind_result failed" );
     goto error;
   }
-  
-  sql_row = mysql_fetch_row( sql_data );
-  if ( !sql_row ) {
+
+  if ( mysql_stmt_fetch( q ) != 0 ) {
     /* This may be benign; there is no login data for that cookie. */
-    mysql_free_result( sql_data );
+
+    /* Future enhancement: look at other possible return values, like
+       truncation */
+
     goto ret1;
   }
 
-  ci->ci_version = get_ul( &sql_row, kVERSION );
-  ci->ci_state = ( (!strcmp(sql_row[kSTATE], "logged out")) ? kLOGGED_OUT:kACTIVE );
-
-  strncpy( ci->ci_ipaddr, sql_row[kIPADDR], sizeof(ci->ci_ipaddr) );
-  strncpy( ci->ci_ipaddr_cur, sql_row[kIPADDR_CUR], sizeof(ci->ci_ipaddr_cur) );
-  strncpy( ci->ci_user, sql_row[kUSER], sizeof(ci->ci_user) );
-  strncpy( ci->ci_ctime, sql_row[kCTIME], sizeof(ci->ci_ctime) );
-  strncpy( ci->ci_krbtkt, sql_row[kKRBTKT], sizeof(ci->ci_krbtkt) );
-  ci->ci_itime = get_ull( &sql_row, kITIME );
-
-  mysql_free_result( sql_data );
-  sql_data = NULL;
+  ci->ci_version = version_result;
+  ci->ci_state = state_result[0] == 'l' ? kLOGGED_OUT : kACTIVE;
+  ci->ci_itime = itime_result;
 
   /* Get all of the factors and put them into ci->ci_realm. Construct the
    * query, get the data, and then carefully construct the string. */
 
   mysql_stmt_close( q );
+
   q = prepare( read_factor_template, bind, 1 );
   if ( !q ) {
     syslog( LOG_ERR, "cookiedb_mysql_read: unable to prepare factor query" );
@@ -591,22 +540,24 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
     goto error;
   }
 
-  sql_data = mysql_use_result( l_sql ); 
-  if ( !sql_data ) {
-      syslog( LOG_ERR, "cookiedb_mysql_read: mysql_use_result failed" );
+  memset( factor_result, 0, sizeof( factor_result ) );
+  BIND_STRING( factor_result[ 0 ], a_factor, sizeof( a_factor ), factor_result_length );
+
+  if ( mysql_stmt_bind_result( q, factor_result ) != 0 ) {
+      syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_bind_result failed" );
       goto error;
   }
 
   ci->ci_realm[ 0 ] = '\0';
   left = sizeof( ci->ci_realm );
   p = ci->ci_realm;
-  while ( (sql_row = mysql_fetch_row( sql_data )) ) {
-      if ( left <= strlen( sql_row[ 0 ] ) + 1 ) { /* +1 for space; <= for NUL */
+  while ( mysql_stmt_fetch( q ) == 0 ) {
+      if ( left <= strlen( a_factor ) + 1 ) { /* +1 for space; <= for NUL */
 	  syslog( LOG_ERR, 
 		  "cookiedb_mysql_read: insufficient buffer space for factor list" );
 	  goto error;
       }
-      sz = sprintf( p, "%s ", sql_row[ 0 ] );
+      sz = sprintf( p, "%s ", a_factor );
       p += sz;
       left -= sz;
   }
@@ -614,24 +565,17 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
   if ( p != ci->ci_realm && *(p-1) == ' ' ) {
       *(p-1) = '\0';
   }
-  mysql_free_result( sql_data );
-
+  
     if ( q ) {
       mysql_stmt_close( q );
     }
     return( 0 );
  ret1:
-    if ( sql_data ) {
-      mysql_free_result( sql_data );
-    }
     if ( q ) {
       mysql_stmt_close( q );
     }
     return( 1 );
  error:
-    if ( sql_data ) {
-      mysql_free_result( sql_data );
-    }
     if ( q ) {
       mysql_stmt_close( q );
     }
@@ -639,7 +583,7 @@ cookiedb_mysql_read( char *cookie, struct cinfo *ci )
 }
 
     int
-cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
+cookiedb_mysql_write_login( char cookie[255], struct cinfo *ci )
 {
   const char *exists_template = "SELECT ci_itime FROM login_cookies "
     "WHERE login_cookie=?";
@@ -660,17 +604,11 @@ cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
   unsigned long int ci_itime_param;
   unsigned long int ci_version_param;
   unsigned long ci_ipaddr_length;
-  char ci_ipaddr_param[ 256 ];
   unsigned long ci_ipaddr_cur_length;
-  char ci_ipaddr_cur_param[ 256 ];
   unsigned long ci_user_length;
-  char ci_user_param[ 130 ];
   unsigned long ci_ctime_length;
-  char ci_ctime_param[ 12 ];
   unsigned long ci_krbtkt_length;
-  char ci_krbtkt_param[ 256 ];
   unsigned long cookie_length;
-  char cookie_param[ 256 ];
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_write_login: not initialized" );
@@ -695,34 +633,23 @@ cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_LONG;
-  bind[ 0 ].buffer = (char *)&ci_itime_param;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_LONG;
-  bind[ 1 ].buffer = (char *)&ci_version_param;
-  bind[ 2 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 2 ].buffer = (char *)ci_ipaddr_param;
-  bind[ 2 ].buffer_length = sizeof( ci_ipaddr_param );
-  bind[ 2 ].length = &ci_ipaddr_length;
-  bind[ 3 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 3 ].buffer = (char *)ci_ipaddr_cur_param;
-  bind[ 3 ].buffer_length = sizeof( ci_ipaddr_cur_param );
-  bind[ 3 ].length = &ci_ipaddr_cur_length;
-  bind[ 4 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 4 ].buffer = (char *)ci_user_param;
-  bind[ 4 ].buffer_length = sizeof( ci_user_param );
-  bind[ 4 ].length = &ci_user_length;
-  bind[ 5 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 5 ].buffer = (char *)ci_ctime_param;
-  bind[ 5 ].buffer_length = sizeof( ci_ctime_param );
-  bind[ 5 ].length = &ci_ctime_length;
-  bind[ 6 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 6 ].buffer = (char *)ci_krbtkt_param;
-  bind[ 6 ].buffer_length = sizeof( ci_krbtkt_param );
-  bind[ 6 ].length = &ci_krbtkt_length;
-  bind[ 7 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 7 ].buffer = (char *)cookie_param;
-  bind[ 7 ].buffer_length = sizeof( cookie_param );
-  bind[ 7 ].length = &cookie_length;
+  BIND_LONG  ( bind[ 0 ], ci_itime_param );
+  BIND_LONG  ( bind[ 1 ], ci_version_param );
+  BIND_STRING( bind[ 2 ], ci->ci_ipaddr, sizeof( ci->ci_ipaddr ), ci_ipaddr_length );
+  BIND_STRING( bind[ 3 ], ci->ci_ipaddr_cur, sizeof( ci->ci_ipaddr_cur ), ci_ipaddr_cur_length );
+  BIND_STRING( bind[ 4 ], ci->ci_user, sizeof( ci->ci_user ), ci_user_length );
+  BIND_STRING( bind[ 5 ], ci->ci_ctime, sizeof( ci->ci_ctime ),  ci_ctime_length );
+  BIND_STRING( bind[ 6 ], ci->ci_krbtkt, sizeof( ci->ci_krbtkt ), ci_krbtkt_length );
+  BIND_STRING( bind[ 7 ], cookie, 255, cookie_length );
+
+  ci_itime_param = time( NULL );
+  ci_version_param = ci->ci_version;
+  ci_ipaddr_length = strlen( ci->ci_ipaddr );
+  ci_ipaddr_cur_length = strlen( ci->ci_ipaddr_cur );
+  ci_user_length = strlen( ci->ci_user );
+  ci_ctime_length = strlen( ci->ci_ctime );
+  ci_krbtkt_length = strlen( ci->ci_krbtkt );
+  cookie_length = strlen( cookie );
 
   q = prepare( template, bind, 8 );
   if ( !q ) {
@@ -730,22 +657,6 @@ cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
 	    "cookiedb_mysql_write_login: failed to prepare template" );
     goto error;
   }
-
-  ci_itime_param = time( NULL );
-  ci_version_param = ci->ci_version;
-  strncpy( ci_ipaddr_param, ci->ci_ipaddr, sizeof( ci_ipaddr_param ) );
-  ci_ipaddr_length = strlen( ci_ipaddr_param );
-  strncpy( ci_ipaddr_cur_param, ci->ci_ipaddr_cur, 
-	   sizeof( ci_ipaddr_cur_param ) );
-  ci_ipaddr_cur_length = strlen( ci_ipaddr_cur_param );
-  strncpy( ci_user_param, ci->ci_user, sizeof( ci_user_param ) );
-  ci_user_length = strlen( ci_user_param );
-  strncpy( ci_ctime_param, ci->ci_ctime, sizeof( ci_ctime_param ) );
-  ci_ctime_length = strlen( ci_ctime_param );
-  strncpy( ci_krbtkt_param, ci->ci_krbtkt, sizeof( ci_krbtkt_param ) );
-  ci_krbtkt_length = strlen( ci_krbtkt_param );
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  cookie_length = strlen( cookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR,
@@ -774,8 +685,8 @@ cookiedb_mysql_write_login( char *cookie, struct cinfo *ci )
 }
 
     int
-cookiedb_mysql_register( char *lcookie, char *scookie, char *factors[], 
-			 int num_factors )
+cookiedb_mysql_register( char lcookie[255], char scookie[255], 
+			 char *factors[], int num_factors )
 {
   const char *exists_template = "SELECT login_cookie FROM service_cookies "
     "WHERE service_cookie=?";
@@ -788,9 +699,7 @@ cookiedb_mysql_register( char *lcookie, char *scookie, char *factors[],
   int i;
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 2 ];
-  char lcookie_param[ 256 ];
   unsigned long lcookie_length;
-  char scookie_param[ 256 ];
   unsigned long scookie_length;
 
 
@@ -814,25 +723,17 @@ cookiedb_mysql_register( char *lcookie, char *scookie, char *factors[],
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)lcookie_param;
-  bind[ 0 ].buffer_length = sizeof( lcookie_param );
-  bind[ 0 ].length = &lcookie_length;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 1 ].buffer = (char *)scookie_param;
-  bind[ 1 ].buffer_length = sizeof( scookie_param );
-  bind[ 1 ].length = &scookie_length;
+  BIND_STRING( bind[ 0 ], lcookie, 255, lcookie_length );
+  BIND_STRING( bind[ 1 ], scookie, 255, scookie_length );
+
+  lcookie_length = strlen( lcookie );
+  scookie_length = strlen( scookie );
 
   q = prepare( template, bind, 2 );
   if ( !q ) {
     syslog( LOG_ERR, "cookiedb_mysql_register: unable to prepare" );
     return( -1 );
   }
-
-  strncpy( lcookie_param, lcookie, sizeof( lcookie_param ) );
-  lcookie_length = strlen( lcookie_param );
-  strncpy( scookie_param, scookie, sizeof( scookie_param ) );
-  scookie_length = strlen( scookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR,
@@ -858,22 +759,19 @@ cookiedb_mysql_register( char *lcookie, char *scookie, char *factors[],
   return(-1);
 }
 
-/* Jorj: not happy that this doesn't take a length - but conforms to old use
- * of service_to_login. */
     int
-cookiedb_mysql_service_to_login( char *cookie, char *login )
+cookiedb_mysql_service_to_login( char cookie[255], char login[255] )
 {
   const char *query_template = "SELECT login_cookie FROM "
     "service_cookies "
     "WHERE service_cookie=?";
-  MYSQL_RES *sql_data = NULL;
-  MYSQL_ROW sql_row;
 
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 1 ];
-  char cookie_param[ 256 ];
   unsigned long cookie_length;
-
+  MYSQL_BIND result[ 1 ];
+  unsigned long login_length;
+  
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_service_to_login: not initialized" );
@@ -881,11 +779,9 @@ cookiedb_mysql_service_to_login( char *cookie, char *login )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)cookie_param;
-  bind[ 0 ].buffer_length = sizeof( cookie_param );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &cookie_length;
+  BIND_STRING( bind[ 0 ], cookie, 255, cookie_length );
+
+  cookie_length = strlen( cookie );
 
   q = prepare( query_template, bind, 1 );
   if ( !q ) {
@@ -894,9 +790,6 @@ cookiedb_mysql_service_to_login( char *cookie, char *login )
     goto error;
   }
 
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  cookie_length = strlen( cookie_param );
-
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_service_to_login: "
 	    "mysql_stmt_execute() failed: %s",
@@ -904,24 +797,22 @@ cookiedb_mysql_service_to_login( char *cookie, char *login )
     goto error;
   }
 
-  sql_data = mysql_use_result( l_sql );
-  if ( !sql_data ) {
-    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: mysql_use_result failed" );
+  memset( result, 0, sizeof( result ) );
+  BIND_STRING( result[ 0 ], login, 255, login_length );
+
+  if ( mysql_stmt_bind_result( q, result ) != 0 ) {
+    syslog( LOG_ERR,
+	    "cookiedb_mysql_service_to_login: mysql_stmt_bind_result failed" );
     goto error;
   }
 
-  sql_row = mysql_fetch_row( sql_data );
-  if ( !sql_row ) {
-    syslog( LOG_ERR, "cookiedb_mysql_service_to_login: unable to retrieve row data" );
-    mysql_free_result( sql_data );
+  if ( mysql_stmt_fetch( q ) != 0 ) {
+    syslog( LOG_ERR,
+	    "cookiedb_mysql_service_to_login: unable to retrieve row data" );
     goto error;
   }
 
-  /* Not at all happy with this strcpy - but we have no buffer length due 
-   * to arcane use of old method. Deal with this later. */
-  strcpy( login, sql_row[0] );
-
-  mysql_free_result( sql_data );
+  mysql_stmt_close( q );
   return( 0 );
  error:
   if ( q ) {
@@ -931,16 +822,14 @@ cookiedb_mysql_service_to_login( char *cookie, char *login )
 }
 
     int
-cookiedb_mysql_delete( char *cookie )
+cookiedb_mysql_delete( char cookie[255] )
 {
   const char *ldelete_template = "DELETE FROM login_cookies WHERE login_cookie=?";
   const char *sdelete_template = "DELETE FROM service_cookies WHERE service_cookie=?";
   const char *template;
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 1 ];
-  char cookie_param[ 256 ];
   unsigned long cookie_length;
-
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_delete: not initialized" );
@@ -955,11 +844,9 @@ cookiedb_mysql_delete( char *cookie )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)cookie_param;
-  bind[ 0 ].buffer_length = sizeof( cookie_param );
-  bind[ 0 ].is_null = 0;
-  bind[ 0 ].length = &cookie_length;
+  BIND_STRING( bind[ 0 ], cookie, 255, cookie_length );
+  
+  cookie_length = strlen( cookie );
 
   q = prepare( template, bind, 1 );
   if ( !q ) {
@@ -967,9 +854,6 @@ cookiedb_mysql_delete( char *cookie )
 	    "cookiedb_mysql_delete: failed to prepare query" );
     goto error;
   }
-
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  cookie_length = strlen( cookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_delete: "
@@ -990,9 +874,9 @@ cookiedb_mysql_delete( char *cookie )
 }
 
     int 
-cookiedb_mysql_eat_cookie( char *cookie, struct timeval *now, time_t *itime, 
-	      int *state, int loggedout_cache, int idle_cache, 
-	      int hard_timeout )
+cookiedb_mysql_eat_cookie( char cookie[255], struct timeval *now, 
+			   time_t *itime, int *state, int loggedout_cache,
+			   int idle_cache, int hard_timeout )
 {
     struct cinfo        ci;
     int                 rc, create = 0;
@@ -1050,13 +934,12 @@ delete_stuff:
 }
 
     int
-cookiedb_mysql_touch( char *cookie )
+cookiedb_mysql_touch( char cookie[255] )
 {
   const char *update_template = "UPDATE login_cookies SET ci_itime=? "
                                 "WHERE login_cookie=?";
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 2 ];
-  char cookie_param[ 256 ];
   unsigned long cookie_length;
   unsigned long int ci_itime_param;
 
@@ -1066,13 +949,11 @@ cookiedb_mysql_touch( char *cookie )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_LONG;
-  bind[ 0 ].buffer = (char *)&ci_itime_param;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 1 ].buffer = (char *)cookie_param;
-  bind[ 1 ].buffer_length = sizeof( cookie_param );
-  bind[ 1 ].is_null = 0;
-  bind[ 1 ].length = &cookie_length;
+  BIND_LONG  ( bind[ 0 ], ci_itime_param );
+  BIND_STRING( bind[ 1 ], cookie, 255, cookie_length );
+  
+  ci_itime_param = time( NULL );
+  cookie_length = strlen( cookie );
 
   q = prepare( update_template, bind, 2 );
   if ( !q ) {
@@ -1080,10 +961,6 @@ cookiedb_mysql_touch( char *cookie )
 	    "cookiedb_mysql_touch: failed to prepare query" );
     goto error;
   }
-
-  strncpy( cookie_param, cookie, sizeof( cookie_param ) );
-  cookie_length = strlen( cookie_param );
-  ci_itime_param = time( NULL );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_touch: "
@@ -1105,7 +982,7 @@ cookiedb_mysql_touch( char *cookie )
 }
 
     int
-cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
+cookiedb_mysql_touch_factor( char *lcookie, char factor[256], int update_only )
 {
   const char *update_template =
       "UPDATE factor_timeouts "
@@ -1123,9 +1000,7 @@ cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
 
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 2 ];
-  char factor_param[ 256 ];
   unsigned long factor_length;
-  char lcookie_param[ 256 ];
   unsigned long lcookie_length;
 
   if ( !l_initialized ) {
@@ -1153,14 +1028,11 @@ cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)factor_param;
-  bind[ 0 ].buffer_length = sizeof( factor_param );
-  bind[ 0 ].length = &factor_length;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 1 ].buffer = (char *)lcookie_param;
-  bind[ 1 ].buffer_length = sizeof( lcookie_param );
-  bind[ 1 ].length = &lcookie_length;
+  BIND_STRING( bind[ 0 ], factor, 256, factor_length );
+  BIND_STRING( bind[ 1 ], lcookie, 255, lcookie_length );
+
+  factor_length = strlen( factor );
+  lcookie_length = strlen( lcookie );
 
   q = prepare( template, bind, 2 );
   if ( !q ) {
@@ -1168,11 +1040,6 @@ cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
 	    "cookiedb_mysql_touch_factor: failed to prepare query" );
     goto error;
   }
-
-  strncpy( factor_param, factor, sizeof( factor_param ) );
-  factor_length = strlen( factor_param );
-  strncpy( lcookie_param, lcookie, sizeof( lcookie_param ) );
-  lcookie_length = strlen( lcookie_param );
 
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_touch_factor: "
@@ -1193,15 +1060,11 @@ cookiedb_mysql_touch_factor( char *lcookie, char *factor, int update_only )
 /* return 0 on success (nothing deleted), 1 on success (something deleted),
  * -1 on error */
     int
-cookiedb_mysql_idle_out_factors( char *lcookie, char *factor,
+cookiedb_mysql_idle_out_factors( char lcookie[255], char factor[256],
 				 unsigned int secs)
 {
   int ret = 0;
-  unsigned long timestamp;
-  char delete_these[ COSIGN_MAXFACTORS ] [ 256 ];
-  int num_to_delete = 0;
-  MYSQL_RES *sql_data = NULL;
-  MYSQL_ROW sql_row;
+  int delete_it = 0;
   const char *select_template = 
       "SELECT factor,timestamp FROM factor_timeouts "
       " WHERE factor=? AND login_cookie=?";
@@ -1209,10 +1072,10 @@ cookiedb_mysql_idle_out_factors( char *lcookie, char *factor,
       "DELETE FROM factor_timeouts WHERE factor=? AND login_cookie=?";
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 2 ];
-  char factor_param[ 256 ];
   unsigned long factor_length;
-  char lcookie_param[ 256 ];
   unsigned long lcookie_length;
+  MYSQL_BIND result[ 2 ];
+  unsigned long int timestamp_result;
 
   if ( !l_initialized ) {
     syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: not initialized" );
@@ -1220,14 +1083,11 @@ cookiedb_mysql_idle_out_factors( char *lcookie, char *factor,
   }
 
   memset( bind, 0, sizeof( bind ) );
-  bind[ 0 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 0 ].buffer = (char *)factor_param;
-  bind[ 0 ].buffer_length = sizeof( factor_param );
-  bind[ 0 ].length = &factor_length;
-  bind[ 1 ].buffer_type = MYSQL_TYPE_STRING;
-  bind[ 1 ].buffer = (char *)lcookie_param;
-  bind[ 1 ].buffer_length = sizeof( lcookie_param );
-  bind[ 1 ].length = &lcookie_length;
+  BIND_STRING( bind[ 0 ], factor, 256, factor_length );
+  BIND_STRING( bind[ 1 ], lcookie, 255, lcookie_length );
+  
+  factor_length = strlen( factor );
+  lcookie_length = strlen( lcookie );
 
   q = prepare( select_template, bind, 2 );
   if ( !q ) {
@@ -1236,40 +1096,30 @@ cookiedb_mysql_idle_out_factors( char *lcookie, char *factor,
     goto error;
   }
 
-  strncpy( factor_param, factor, sizeof( factor_param ) );
-  factor_length = strlen( factor_param );
-  strncpy( lcookie_param, lcookie, sizeof( lcookie_param ) );
-  lcookie_length = strlen( lcookie_param );
-
   if ( mysql_stmt_execute( q ) ) {
     syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: "
 	    "mysql_stmt_execute() failed: %s",
 	    mysql_stmt_error( q ) );
     goto error;
   }
+  
+  memset( result, 0, sizeof( result ) );
+  BIND_STRING( result[ 0 ], factor, 255, factor_length );
+  BIND_LONG  ( result[ 1 ], timestamp_result );
 
-  sql_data = mysql_use_result( l_sql );
-  if ( !sql_data ) {
+  if ( mysql_stmt_bind_result( q, result ) != 0 ) {
     syslog( LOG_ERR, 
-	    "cookiedb_mysql_idle_out_factors: mysql_use_result failed" );
+	    "cookiedb_mysql_idle_out_factors: mysql_stmt_bind_result failed" );
     return( -1 );
   }
 
-  while ( (sql_row = mysql_fetch_row( sql_data )) ) {
-      timestamp = get_ul( &sql_row, 1 );
-
-      if ( timestamp < time(NULL) - secs ) {
-	  ret = 1;
-	  strncpy( delete_these[ num_to_delete++ ], 
-		   sql_row[ 0 ], 
-		   sizeof( delete_these[ 0 ] ) );
-      }
+  if ( mysql_stmt_fetch( q ) == 0 ) {
+    if ( timestamp_result < time(NULL) - secs ) {
+      delete_it = ret = 1;
+    }
   }
 
-  mysql_free_result( sql_data );
-
-  while ( num_to_delete ) {
-
+  if ( delete_it ) {
     mysql_stmt_close( q );
 
     q = prepare( delete_template, bind, 2 );
@@ -1279,21 +1129,12 @@ cookiedb_mysql_idle_out_factors( char *lcookie, char *factor,
       goto error;
     }
 
-    strncpy( factor_param, 
-	     delete_these[num_to_delete-1],
-	     sizeof( factor_param ) );
-    factor_length = strlen( factor_param );
-    strncpy( lcookie_param, lcookie, sizeof( lcookie_param ) );
-    lcookie_length = strlen( lcookie_param );
-
     if ( mysql_stmt_execute( q ) ) {
       syslog( LOG_ERR, "cookiedb_mysql_idle_out_factors: "
 	      "mysql_stmt_execute() failed: %s",
 	      mysql_stmt_error( q ) );
       goto error;
     }
-
-    num_to_delete--;
   }
 
   if ( q ) {

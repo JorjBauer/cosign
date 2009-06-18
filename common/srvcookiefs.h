@@ -15,15 +15,15 @@ struct cinfo {
 struct cfs_funcs {
   int (*f_init)(char *, int );
   void (*f_destroy)( );
-  int (*f_validate)( char *, int, int );
-  int (*f_logout)( char * );
-  int (*f_read) ( char *, struct cinfo * );
-  int (*f_write) ( char *, struct cinfo * );
-  int (*f_register) (char *, char *, char *[], int );
-  int (*f_service_to_login) ( char *, char * );
-  int (*f_delete) ( char * );
-  int (*f_eat) ( char *, struct timeval *, time_t *, int *, int, int, int );
-  int (*f_touch) ( char * );
-  int (*f_touch_factor) ( char *, char *, int );
-  int (*f_idle_out_factors) ( char *, char *, unsigned int );
+  int (*f_validate)( char[255], int, int );
+  int (*f_logout)( char[255] );
+  int (*f_read) ( char[255], struct cinfo * );
+  int (*f_write) ( char[255], struct cinfo * );
+  int (*f_register) (char[255], char[255], char *[], int );
+  int (*f_service_to_login) ( char[255], char[255] );
+  int (*f_delete) ( char[255] );
+  int (*f_eat) ( char[255], struct timeval *, time_t *, int *, int, int, int );
+  int (*f_touch) ( char[255] );
+  int (*f_touch_factor) ( char *, char[256], int );
+  int (*f_idle_out_factors) ( char[255], char[256], unsigned int );
 };
