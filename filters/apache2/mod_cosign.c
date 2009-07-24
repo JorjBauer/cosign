@@ -987,50 +987,18 @@ set_cosign_certs( cmd_parms *params, void *mconfig,
     static const char *
 set_cosign_host( cmd_parms *params, void *mconfig, const char *arg )
 {
-    struct hostent		*he;
-    int				i;
-    struct connlist		*new, **cur;
-    char			*err;
     cosign_host_config		*cfg;
 
     cfg = cosign_merge_cfg( params, mconfig );
 
     cfg->host = apr_pstrdup( params->pool, arg );
-    if (( he = gethostbyname( cfg->host )) == NULL ) {
-	err = apr_psprintf( params->pool, "%s: host unknown", cfg->host );
-	return( err );
+
+    if ( connlist_create( &cfg->cl, cfg->host,
+			  cfg->port, params->server ) != 0 ) {
+	return( "set_cosign_host: connlist_create failed" );
     }
 
-    /* This is hairy. During operation, we re-oder the connection list
-     * so that the most responsive server is at the head of the list.
-     * This requires updates to the pointer to the list head from the cfg
-     * structure. However, the cfg structure gets copied around when
-     * Apache does configuration merges, so there isn't a single cfg
-     * structure in any one process. Instead, we point to a pointer
-     * to the list head. */
-    cfg->cl = (struct connlist **)
-	    apr_palloc(params->pool, sizeof(struct connlist*));
-
-    /* preserve address order as returned from DNS */
-    /* actually, here we will randomize for "load balancing" */
-    cur = cfg->cl;
-    for ( i = 0; he->h_addr_list[ i ] != NULL; i++ ) {
-	new = ( struct connlist * )
-		apr_palloc( params->pool, sizeof( struct connlist ));
-	memset( &new->conn_sin, 0, sizeof( struct sockaddr_in ));
-	new->conn_sin.sin_family = AF_INET;
-	if ( cfg->port == 0 ) {
-            new->conn_sin.sin_port = htons( 6663 );
-        } else {
-            new->conn_sin.sin_port = cfg->port;
-        }
-	memcpy( &new->conn_sin.sin_addr.s_addr,
-		he->h_addr_list[ i ], ( unsigned int)he->h_length );
-	new->conn_sn = NULL;
-	*cur = new;
-	cur = &new->conn_next;
-    }
-    *cur = NULL;
+    cfg->configured = 1;
     return( NULL );
 }
 

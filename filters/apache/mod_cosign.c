@@ -976,50 +976,18 @@ set_cosign_certs( cmd_parms *params, void *mconfig,
     static const char *
 set_cosign_host( cmd_parms *params, void *mconfig, char *arg )
 {
-    struct hostent		*he;
-    int				i;
-    struct connlist		*new, **cur;
-    char			*err;
     cosign_host_config		*cfg;
 
     cfg = cosign_merge_cfg( params, mconfig );
 
     cfg->host = ap_pstrdup( params->pool, arg );
-    if (( he = ap_pgethostbyname( params->pool, cfg->host )) == NULL ) {
-	err = ap_psprintf( params->pool, "%s: host unknown", cfg->host );
-	return( err );
+
+    if ( connlist_create( &cfg->cl, cfg->host,
+			  cfg->port, params->server ) != 0 ) {
+	
+	return( "set_cosign_host: connlist_create failed." );
     }
 
-    /* This is hairy. During operation, we re-order the connection list
-     * so that the most responsive server is at the head of the list.
-     * This requires updates to the pointer to the list head from the cfg
-     * structure. However, the cfg structure gets copied around when
-     * Apache does configuration merges, so there isn't a single cfg
-     * structure in any one process. Instead, we point to a pointer
-     * to the list head. */
-    cfg->cl = (struct connlist **)
-		ap_palloc(params->pool, sizeof(struct connlist *));
-
-    /* preserve address order as returned from DNS */
-    /* actually, here we will randomize for "load balancing" */
-    cur = cfg->cl;
-    for ( i = 0; he->h_addr_list[ i ] != NULL; i++ ) {
-	new = ( struct connlist * )
-		ap_palloc( params->pool, sizeof( struct connlist ));
-	memset( &new->conn_sin, 0, sizeof( struct sockaddr_in ));
-	new->conn_sin.sin_family = AF_INET;
-	if ( cfg->port == 0 ) {
-	    new->conn_sin.sin_port = htons( 6663 );
-	} else {
-	    new->conn_sin.sin_port = cfg->port;
-	}
-	memcpy( &new->conn_sin.sin_addr.s_addr,
-		he->h_addr_list[ i ], ( unsigned int)he->h_length );
-	new->conn_sn = NULL;
-	*cur = new;
-	cur = &new->conn_next;
-    }
-    *cur = NULL;
     cfg->configured = 1; 
     return( NULL );
 }
@@ -1074,9 +1042,7 @@ cosign_child_cleanup( server_rec *s, pool *p )
     /* upon child exit, close all open SNETs */
     cfg = (cosign_host_config *) ap_get_module_config( s->module_config,
 	    &cosign_module );
-    if ( teardown_conn( cfg->cl, s ) != 0 ) {
-	cosign_log( APLOG_ERR, s, "mod_cosign: teardown conn err" );
-    }
+    connlist_destroy( &cfg->cl, s );
 }
 
 static command_rec cosign_cmds[ ] =

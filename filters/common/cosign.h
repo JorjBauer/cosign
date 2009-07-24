@@ -67,4 +67,5 @@ int cosign_cookie_valid( cosign_host_config *, char *, struct sinfo *, char *,
 	void * );
 int cosign_check_cookie( char *, struct sinfo *, cosign_host_config *, int,
 	void * );
-int teardown_conn( struct connlist **, void * );
+int  connlist_create( struct connlist ***, char *, unsigned short, void * );
+void connlist_destroy( struct connlist ***, void * );
