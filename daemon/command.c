@@ -826,8 +826,10 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     struct cinfo 	ci;
     struct timeval	tv;
     char		login[ MAXCOOKIELEN ], lookup[ MAXCOOKIELEN ];
+    char		rekeybuf[ 128 ], rcookie[ 256 ];
     char		*p;
     int			status, i;
+    int			rekey = 0;
     double		rate;
     struct idlelist	*il;
     int			did_il;
@@ -842,8 +844,8 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     char                *tok;
 
     /*
-     * C: CHECK servicecookie [FACTORLIST]
-     * S: 231 ip principal realm
+     * C: CHECK servicecookie [FACTORLIST] [ "rekey" ]
+     * S: 231 ip principal realm [ rekeyed-cookie ]
      */
 
     /*
@@ -858,10 +860,16 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	return( 1 );
     }
 
-    if ( ac < 2 ) {
+    if ( ac < 2 || ac > 4 ) {
 	syslog( LOG_ERR, "f_check: %s Wrong number of args.", al->al_hostname );
 	snet_writef( sn, "%d CHECK: Wrong number of args.\r\n", 530 );
 	return( 1 );
+    }
+    if ( ac == 3 || ac == 4 ) {
+	if ( protocol >= 2 && strcmp( av[ ac - 1 ], "rekey" ) == 0 ) {
+	    rekey = 1;
+	}
+	/* need some way to be sure the extra argument is a factorlist. */
     }
 
     strncpy( lookup, av[ 1 ], sizeof( lookup ) );
@@ -1036,9 +1044,40 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
       }
     }
 
+    if ( status == 231 && rekey ) {
+	/* rekey service cookie */
+
+	if ( mkcookie( sizeof( rekeybuf ), rekeybuf ) != 0 ) {
+	    syslog( LOG_ERR, "f_check: rekey: mkcookie failed" );
+	    snet_writef( sn, "%d CHECK: rekey failed.\r\n", 536 );
+	    return( 1 );
+	}
+	if (( p = strchr( av[ 1 ], '=' )) == NULL ) {
+	    syslog( LOG_ERR, "f_check: rekey: bad service cookie value: "
+			     "\"%s\".", av[ 1 ] );
+	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
+	    return( 1 );
+	}
+	*p = '\0';
+	if ( snprintf( rcookie, sizeof( rcookie ), "%s=%s", p, rekeybuf )
+		>= sizeof( rcookie )) {
+	    syslog( LOG_ERR, "f_check: rekey: new cookie too long." );
+	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
+	    return( 1 );
+	}
+	*p = '=';
+
+	if ( cookiefs->f_rename_cookie( av[ 1 ], rcookie ) != 0 ) {
+	    syslog( LOG_ERR, "f_check: rekey: rename cookie failed." );
+	    snet_writef( sn, "%d CHECK: rekey failed.\r\n", 536 );
+	    return( 1 );
+	}
+    }
+
     if ( protocol == 2 ) {
-	snet_writef( sn, "%d %s %s %s\r\n",
-		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors );
+	snet_writef( sn, "%d %s %s %s %s\r\n",
+		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
+		( rekey ? rcookie : "" ));
     } else {
 	/* if there is more than one realm, we just give the first */
 	if (( p = strtok( allowed_factors, " " )) != NULL ) {

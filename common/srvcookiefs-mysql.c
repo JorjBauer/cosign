@@ -71,6 +71,7 @@ int cookiedb_mysql_eat_cookie( char[255], struct timeval *, time_t *, int *, int
 int cookiedb_mysql_touch( char[255] );
 int cookiedb_mysql_touch_factor( char *, char[256], int );
 int cookiedb_mysql_idle_out_factors( char[255], char[256], unsigned int );
+int cookiedb_mysql_rename_cookie( char *, char * )
 
 /* Dispatch table */
 struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
@@ -85,7 +86,8 @@ struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
 			       cookiedb_mysql_eat_cookie,
 			       cookiedb_mysql_touch,
 			       cookiedb_mysql_touch_factor,
-			       cookiedb_mysql_idle_out_factors };
+			       cookiedb_mysql_idle_out_factors,
+			       cookiedb_mysql_rename_cookie };
 
 struct cfs_funcs *cookiefs = &mysql_cfs;
 
@@ -1147,4 +1149,43 @@ cookiedb_mysql_idle_out_factors( char lcookie[255], char factor[256],
   }
   return( -1 );
 
+}
+
+    int
+cookiedb_mysql_rename_cookie( char *from, char *to )
+{
+    MYSQL_STMT		*stmt = NULL;
+    MYSQL_BIND		bind[ 2 ];
+    unsigned int	from_len, to_len;
+    int			rc = -1;
+    const char		*rename_template = "UPDATE service_cookies "
+					   "SET service_cookie=? "
+					   "WHERE service_cookie=?";
+
+    memset( bind, 0, sizeof( bind ));
+    BIND_STRING( bind[ 0 ], from, 255, from_len );
+    BIND_STRING( bind[ 1 ], to, 255, to_len );
+
+    if (( stmt = prepare( rename_template, bind, 2 )) == NULL ) {
+	syslog( LOG_ERR, "cookiedb_mysql_rename_cookie: "
+			 "failed to prepare MySQL query." );
+	return( -1 );
+    }
+
+    if ( mysql_execute_stmt( stmt ) != 0 ) {
+	syslog( LOG_ERR, "cookiedb_mysql_rename_cookie: "
+			 "mysql_execute_stmt failed: %s",
+			 mysql_stmt_error( stmt ));
+	goto cleanup;
+    }
+
+    /* update successful. */
+    rc = 0;
+
+cleanup:
+    if ( stmt != NULL ) {
+	mysql_stmt_close( stmt );
+    }
+
+    return( rc );
 }
