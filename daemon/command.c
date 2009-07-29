@@ -1059,7 +1059,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	*p = '\0';
-	if ( snprintf( rcookie, sizeof( rcookie ), "%s=%s", p, rekeybuf )
+	if ( snprintf( rcookie, sizeof( rcookie ), "%s=%s", av[ 1 ], rekeybuf )
 		>= sizeof( rcookie )) {
 	    syslog( LOG_ERR, "f_check: rekey: new cookie too long." );
 	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
