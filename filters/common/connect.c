@@ -632,7 +632,7 @@ connlist_create( struct connlist ***cl, char *host, unsigned short port,
 	}
 	memset( &new->conn_sin, 0, sizeof( struct sockaddr_in ));
 	new->conn_sin.sin_family = AF_INET;
-	if ( port = 0 ) {
+	if ( port == 0 ) {
 	    new->conn_sin.sin_port = htons( 6663 );
 	} else {
 	    new->conn_sin.sin_port = port;
