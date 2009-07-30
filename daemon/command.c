@@ -1074,7 +1074,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
     }
 
-    if ( protocol == 2 ) {
+    if ( protocol >= 2 ) {
 	snet_writef( sn, "%d %s %s %s %s\r\n",
 		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
 		( rekey ? rcookie : "" ));

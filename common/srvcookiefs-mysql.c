@@ -1163,8 +1163,11 @@ cookiedb_mysql_rename_cookie( char *from, char *to )
 					   "WHERE service_cookie=?";
 
     memset( bind, 0, sizeof( bind ));
-    BIND_STRING( bind[ 0 ], from, 255, from_len );
-    BIND_STRING( bind[ 1 ], to, 255, to_len );
+    BIND_STRING( bind[ 0 ], to, strlen( to ), to_len );
+    BIND_STRING( bind[ 1 ], from, strlen( from ), from_len );
+
+    to_len = strlen( to );
+    from_len = strlen( from );
 
     if (( stmt = prepare( rename_template, bind, 2 )) == NULL ) {
 	syslog( LOG_ERR, "cookiedb_mysql_rename_cookie: "
@@ -1172,9 +1175,9 @@ cookiedb_mysql_rename_cookie( char *from, char *to )
 	return( -1 );
     }
 
-    if ( mysql_execute_stmt( stmt ) != 0 ) {
+    if ( mysql_stmt_execute( stmt ) != 0 ) {
 	syslog( LOG_ERR, "cookiedb_mysql_rename_cookie: "
-			 "mysql_execute_stmt failed: %s",
+			 "mysql_stmt_execute failed: %s",
 			 mysql_stmt_error( stmt ));
 	goto cleanup;
     }
