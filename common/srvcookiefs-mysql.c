@@ -71,7 +71,7 @@ int cookiedb_mysql_eat_cookie( char[255], struct timeval *, time_t *, int *, int
 int cookiedb_mysql_touch( char[255] );
 int cookiedb_mysql_touch_factor( char *, char[256], int );
 int cookiedb_mysql_idle_out_factors( char[255], char[256], unsigned int );
-int cookiedb_mysql_rename_cookie( char *, char * )
+int cookiedb_mysql_rename_cookie( char *, char * );
 
 /* Dispatch table */
 struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
