@@ -1156,7 +1156,7 @@ cookiedb_mysql_rename_cookie( char *from, char *to )
 {
     MYSQL_STMT		*stmt = NULL;
     MYSQL_BIND		bind[ 2 ];
-    unsigned int	from_len, to_len;
+    unsigned long	from_len, to_len;
     int			rc = -1;
     const char		*rename_template = "UPDATE service_cookies "
 					   "SET service_cookie=? "
