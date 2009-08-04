@@ -1059,6 +1059,9 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	*p = '\0';
+
+	syslog( LOG_NOTICE, "f_check: rekey %s for %s", av[ 1 ], remote_cn );
+
 	if ( snprintf( rcookie, sizeof( rcookie ), "%s=%s", av[ 1 ], rekeybuf )
 		>= sizeof( rcookie )) {
 	    syslog( LOG_ERR, "f_check: rekey: new cookie too long." );
