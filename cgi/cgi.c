@@ -1059,7 +1059,7 @@ loggedin:
 		    "factor list. Please try again later.";
 		subfile( ERROR_HTML, sl, 0 );
 		exit( 0 );
-
+	      }
 	    }
 	    service = new_scookie;
 	}
