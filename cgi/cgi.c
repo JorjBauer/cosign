@@ -25,7 +25,6 @@
 #include "factor.h"
 #include "mkcookie.h"
 
-#define jdebug(x, y...) { FILE *f=fopen("/tmp/jorj.debug", "a");fprintf(f, x, ## y); fclose(f); }
 #define SERVICE_MENU	"/services/"
 #define LOOPWINDOW      30 
 #define MAXLOOPCOUNT	10	
@@ -1048,8 +1047,13 @@ loggedin:
 		exit( 0 );
 	    }
 
-	    if ( implode_factors( sl[ SL_RFACTOR ].sl_data, imploded_factors, sizeof(imploded_factors) ) == 0 ) {
-		fprintf( stderr, "%s: implode_scookie_factors failed\n", script );
+	    if ( sl[ SL_RFACTOR ].sl_data != NULL ) {
+	      if ( implode_factors( sl[ SL_RFACTOR ].sl_data, 
+				    imploded_factors,
+				    sizeof(imploded_factors) ) == 0 ) {
+		fprintf( stderr, 
+			 "%s: implode_scookie_factors failed\n", 
+			 script );
 		sl[ SL_TITLE ].sl_data = "Error: Implode SCookie Factors Failed";
 		sl[ SL_ERROR ].sl_data = "We were unable to create a service "
 		    "factor list. Please try again later.";

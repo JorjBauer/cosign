@@ -415,7 +415,7 @@ net_register( SNET *sn, void *vrp )
     struct reg_param	*rp = vrp;
 
     if ( snet_writef( sn, "REGISTER %s %s %s %s\r\n", rp->rp_cookie, rp->rp_ip,
-	    rp->rp_scookie, rp->rp_factors ) < 0 ) {
+	    rp->rp_scookie, rp->rp_factors ? rp->rp_factors : "" ) < 0 ) {
 	fprintf( stderr, "cosign_register: register failed\n" );
 	return( COSIGN_ERROR );
     }
