@@ -560,8 +560,6 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
     if ( cfg->cl == NULL ) {
         cfg->cl = scfg->cl;
     }
-cosign_log( APLOG_NOTICE, params->server, "mod_cosign: cosign_merge_cfg: "
-	    "cfg->ctx: 0x%x; cfg->key: %s", cfg->ctx, cfg->key );	
     if ( cfg->ctx == NULL ) {
         cfg->ctx = scfg->ctx;
     }
