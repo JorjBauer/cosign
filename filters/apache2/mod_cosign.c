@@ -190,8 +190,16 @@ cosign_handler( request_rec *r )
 	return( HTTP_METHOD_NOT_ALLOWED );
     }
 
+#ifdef notdef
     cfg = (cosign_host_config *)ap_get_module_config( r->server->module_config,
 						      &cosign_module );
+#endif /* notdef */
+    cfg = (cosign_host_config *)ap_get_module_config(
+            r->per_dir_config, &cosign_module);
+    if ( !cfg->configured ) {
+        cfg = (cosign_host_config *)ap_get_module_config(
+                r->server->module_config, &cosign_module);
+    }
     if ( !cfg->configured ) {
 	cosign_log( APLOG_ERR, r->server, "mod_cosign not configured" );
 	return( HTTP_SERVICE_UNAVAILABLE );
@@ -365,7 +373,6 @@ cosign_auth( request_rec *r )
     if ( !cfg->configured || cfg->protect == 0 ) {
 	return( DECLINED );
     }
-
     /*
      * Verify cfg has been setup correctly by admin
      */
@@ -411,7 +418,6 @@ cosign_auth( request_rec *r )
 	goto redirect;
     }
     my_cookie = apr_psprintf( r->pool, "%s=%s", cookiename, pair );
-
     /* if it's a stale cookie, give out a new one */
     gettimeofday( &now, NULL );
     (void)strtok( my_cookie, "/" );
@@ -554,6 +560,8 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
     if ( cfg->cl == NULL ) {
         cfg->cl = scfg->cl;
     }
+cosign_log( APLOG_NOTICE, params->server, "mod_cosign: cosign_merge_cfg: "
+	    "cfg->ctx: 0x%x; cfg->key: %s", cfg->ctx, cfg->key );	
     if ( cfg->ctx == NULL ) {
         cfg->ctx = scfg->ctx;
     }
@@ -579,6 +587,16 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
     }
 #endif /* GSS */
 #endif /* KRB */
+
+    if ( cfg->key == NULL ) {
+      cfg->key = apr_pstrdup( params->pool, scfg->key );
+    }
+    if ( cfg->cert == NULL ) {
+      cfg->cert = apr_pstrdup( params->pool, scfg->cert );
+    }
+    if ( cfg->cadir == NULL ) {
+      cfg->cadir = apr_pstrdup( params->pool, scfg->cadir );
+    }
 
     return( cfg );
 }
@@ -1090,7 +1108,7 @@ static command_rec cosign_cmds[ ] =
         "the URL to deliver bad news about POSTed data" ),
 
         AP_INIT_TAKE1( "CosignService", set_cosign_service,
-        NULL, RSRC_CONF | ACCESS_CONF, 
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, 
         "the name of the cosign service" ),
 
         AP_INIT_FLAG( "CosignProtected", set_cosign_protect,
@@ -1102,11 +1120,11 @@ static command_rec cosign_cmds[ ] =
         "the URL to register service cookies with cosign" ),
 
 	AP_INIT_TAKE1( "CosignValidReference", set_cosign_valid_reference,
-	NULL, RSRC_CONF | ACCESS_CONF,
+	NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG,
 	"the regular expression matching valid redirect service URLs" ),
 
 	AP_INIT_TAKE1( "CosignValidationErrorRedirect",
-	set_cosign_validation_error_redirect, NULL, RSRC_CONF | ACCESS_CONF,
+	set_cosign_validation_error_redirect, NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG,
 	"where the location handler sends us in case of bad parameters" ),
 
         AP_INIT_TAKE1( "CosignPort", set_cosign_port,
@@ -1166,7 +1184,7 @@ static command_rec cosign_cmds[ ] =
         "for SSL load balancers - redirect with no added port to the URL" ),
 
         AP_INIT_TAKE3( "CosignCrypto", set_cosign_certs,
-        NULL, RSRC_CONF | ACCESS_CONF, 
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, 
         "crypto for use in talking to cosign host" ),
 
         AP_INIT_FLAG( "CosignGetProxyCookies", set_cosign_proxy_cookies,
