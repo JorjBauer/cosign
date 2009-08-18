@@ -185,7 +185,15 @@ cosign_handler( request_rec *r )
 	return( HTTP_METHOD_NOT_ALLOWED );
     }
 
+#ifdef notdef
     cfg = (cosign_host_config *)ap_get_module_config( r->server->module_config,							      &cosign_module );
+#endif /* notdef */
+    cfg = (cosign_host_config *)ap_get_module_config(
+            r->per_dir_config, &cosign_module);
+    if ( !cfg->configured ) {
+        cfg = (cosign_host_config *)ap_get_module_config(
+                r->server->module_config, &cosign_module);
+    }
     if ( !cfg->configured ) {
 	cosign_log( APLOG_ERR, r->server, "mod_cosign not configured" );
 	return( HTTP_SERVICE_UNAVAILABLE );
@@ -593,6 +601,16 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
     }
 #endif /* GSS */
 #endif /* KRB */
+
+    if ( cfg->key == NULL ) {
+	cfg->key = ap_pstrdup( params->pool, scfg->key );
+    }
+    if ( cfg->cert == NULL ) {
+	cfg->cert = ap_pstrdup( params->pool, scfg->cert );
+    }
+    if ( cfg->cadir == NULL ) {
+	cfg->cadir = ap_pstrdup( params->pool, scfg->cadir );
+    }
 
     return( cfg );
 }
@@ -1076,7 +1094,7 @@ static command_rec cosign_cmds[ ] =
         "the URL to deliver bad news about POSTed data" },
 
         { "CosignService", set_cosign_service,
-        NULL, RSRC_CONF | ACCESS_CONF, TAKE1,
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, TAKE1,
         "the name of the cosign service" },
 
         { "CosignProtected", set_cosign_protect,
@@ -1088,12 +1106,12 @@ static command_rec cosign_cmds[ ] =
         "the URL to register service cookies with cosign" },
 
         { "CosignValidReference", set_cosign_valid_reference,
-        NULL, RSRC_CONF | ACCESS_CONF, TAKE1,
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, TAKE1,
         "the regular expression matching valid redirect service URLs" },
 
         { "CosignValidationErrorRedirect",
 	set_cosign_validation_error_redirect,
-        NULL, RSRC_CONF | ACCESS_CONF, TAKE1,
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, TAKE1,
         "where the location handler sends us in case of a bad destination" },
 
         { "CosignPort", set_cosign_port,
@@ -1153,7 +1171,7 @@ static command_rec cosign_cmds[ ] =
         "for SSL load balancers - redirect with no added port to the URL" },
 
         { "CosignCrypto", set_cosign_certs,
-        NULL, RSRC_CONF | ACCESS_CONF, TAKE3,
+        NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG, TAKE3,
         "crypto for use in talking to cosign host" },
 
         { "CosignGetProxyCookies", set_cosign_proxy_cookies,
