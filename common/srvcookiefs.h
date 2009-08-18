@@ -26,4 +26,5 @@ struct cfs_funcs {
   int (*f_touch) ( char[255] );
   int (*f_touch_factor) ( char *, char[256], int );
   int (*f_idle_out_factors) ( char[255], char[256], unsigned int );
+    int (*f_rename_cookie)( char *, char * );
 };

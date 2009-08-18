@@ -114,8 +114,8 @@ mkcookiepath( char *prefix, int hashlen, char *cookie, char *buf, int len )
 
 
     int
-cosign_cookie_valid( cosign_host_config *cfg, char *cookie, struct sinfo *si,
-	char *ipaddr, void *s )
+cosign_cookie_valid( cosign_host_config *cfg, char *cookie, char **rekey,
+	struct sinfo *si, char *ipaddr, void *s )
 {
     struct sinfo	lsi;
     ACAV		*acav;
@@ -227,7 +227,7 @@ retry:
     }
 
 netcheck:
-    if (( rc = cosign_check_cookie( cookie, si, cfg, newfile, s ))
+    if (( rc = cosign_check_cookie( cookie, rekey, si, cfg, newfile, s ))
 	    != COSIGN_OK ) {
 	if ( rc == COSIGN_ERROR ) {
 	    cosign_log( APLOG_ERR, s, "mod_cosign: cosign_cookie_valid: "

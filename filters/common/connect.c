@@ -80,14 +80,16 @@ implode_factors( char *in[], int howmany, char *out, int out_length)
 }
 
     static int
-netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
-	void *s, cosign_host_config *cfg )
+netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
+	struct connlist *conn, void *s, cosign_host_config *cfg )
 {
 
     /* These variable names are terrible. 'fc' is the count of required
      * factors. 'fv' is the value list of required factors. */
     int			i, j, ac, rc, fc = cfg->reqfc;
+    int			factor_limit;
     char		*p, *line, **av, **fv = cfg->reqfv;
+    char		*rekeyed_cookie = NULL;
     struct timeval      tv;
     SNET		*sn = conn->conn_sn;
     extern int		errno;
@@ -105,10 +107,10 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 
     /* CHECK service-cookie */
     if ( snet_writef( sn, 
-		      "CHECK %s%s%s\r\n", 
+		      "CHECK %s %s %s\r\n", 
 		      scookie, 
-		      imploded_factors[ 0 ] ? " " : "",
-		      imploded_factors ) < 0 ) {
+		      ( imploded_factors[ 0 ] ? imploded_factors : "" ),
+		      ( rekey ? "rekey" : "" )) < 0 ) {
 	cosign_log( APLOG_ERR, s,
 		"mod_cosign: netcheck_cookie: snet_writef failed" );
 	return( COSIGN_ERROR );
@@ -160,6 +162,12 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 		"mod_cosign: netcheck_cookie: wrong num of args: %s", line );
 	return( COSIGN_ERROR );
     }
+    if ( rekey != NULL ) {
+	/* last factor is penultimate argument */
+	factor_limit = ac - 1;
+    } else {
+	factor_limit = ac;
+    }
 
     /* I guess we check some sizing here :) */
     if ( strlen( av[ 1 ] ) >= sizeof( si->si_ipaddr )) {
@@ -178,7 +186,7 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
     si->si_protocol = cosign_protocol;
     if ( cosign_protocol == 2 ) {
 	for ( i = 0; i < fc; i++ ) {
-	    for ( j = 3; j < ac; j++ ) {
+	    for ( j = 3; j < factor_limit; j++ ) {
 		if ( strcmp( fv[ i ], av[ j ] ) == 0 ) {
 		    break;
 		}
@@ -204,7 +212,7 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 		}
 		    }
 	    }
-	    if ( j >= ac ) {
+	    if ( j >= factor_limit ) {
 		/* a required factor wasn't in the check line */
 		break;
 	    }
@@ -223,7 +231,7 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 	}
 	strcpy( si->si_factor, av[ 3 ] );
 
-	for ( i = 4; i < ac; i++ ) {
+	for ( i = 4; i < factor_limit; i++ ) {
 	    if ( strlen( av[ i ] ) + 1 + 1 >
 		    sizeof( si->si_factor ) - strlen( si->si_factor )) {
 		cosign_log( APLOG_ERR, s,
@@ -244,6 +252,18 @@ netcheck_cookie( char *scookie, struct sinfo *si, struct connlist *conn,
 #ifdef KRB
     *si->si_krb5tkt = '\0';
 #endif /* KRB */
+
+    if ( rekey != NULL ) {
+	if (( rekeyed_cookie = strdup( av[ ac - 1 ] )) == NULL ) {
+	    cosign_log( APLOG_ERR, s, "mod_cosign: netcheck_cookie: "
+			"strdup rekeyed cookie: %s", strerror( errno ));
+	    return( COSIGN_ERROR );
+	}
+
+	/* caller must free rekeyed cookie. */
+	*rekey = rekeyed_cookie;
+    }
+
     return( COSIGN_OK );
 }
 
@@ -500,65 +520,31 @@ error1:
 #endif /* KRB */
 
     int
-teardown_conn( struct connlist **cur, void *s )
-{
-
-    /* close down all children on exit */
-    for ( ; cur != NULL; cur = &(*cur)->conn_next ) {
-	if ( (*cur)->conn_sn != NULL  ) {
-	    close_sn( *cur, s );
-	}
-    }
-    return( 0 );
-}
-
-    int
-cosign_check_cookie( char *scookie, struct sinfo *si, cosign_host_config *cfg,
-	int first, void *s )
+cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
+	cosign_host_config *cfg, int first, void *s )
 {
     struct connlist	**cur, *tmp;
     int			rc = COSIGN_ERROR, retry = 0;
 
-    /* use connection, then shuffle if there is a problem
-     * what happens if they are all bad?
-     */
-    for ( cur = cfg->cl; *cur != NULL; cur = &(*cur)->conn_next ) {
-	if ( (*cur)->conn_sn == NULL ) {
-	    continue;
-	}
-
-	switch ( rc = netcheck_cookie( scookie, si, *cur, s, cfg )) {
-	case COSIGN_OK :
-	case COSIGN_LOGGED_OUT :
-	    goto done;
-
-	case COSIGN_RETRY :
-	    retry = 1;
-	    break;
-
-	default:
-	    cosign_log( APLOG_ERR, s,
-		    "mod_cosign: cosign_check_cookie: unknown return: %d", rc );
-	case COSIGN_ERROR :
-	    if ( snet_close( (*cur)->conn_sn ) != 0 ) {
-		cosign_log( APLOG_ERR, s,
-			"mod_cosign: choose_conn: snet_close failed" );
-	    }
-	    (*cur)->conn_sn = NULL;
-	    break;
-	}
+    if ( cfg->cl != NULL ) {
+	connlist_destroy( &cfg->cl, s );
+    }
+    if ( connlist_create( &cfg->cl, cfg->host, cfg->port, s ) != 0 ) {
+	cosign_log( APLOG_ERR, s, "cosign_check_cookie: "
+		    "connlist_create: rebuild for %s failed", cfg->host );
+	return( COSIGN_ERROR );
     }
 
-    /* all are closed or we didn't like their answer */
     for ( cur = cfg->cl; *cur != NULL; cur = &(*cur)->conn_next ) {
-	if ( (*cur)->conn_sn != NULL ) {
-	    continue;
-	}
-	if (( rc = connect_sn( *cur, cfg, s )) != 0 ) {
+	if ( connect_sn( *cur, cfg, s ) != 0 ) {
+	    cosign_log( APLOG_ERR, s, "cosign_check_cookie: "
+			"connect_sn to %s failed",
+			inet_ntoa( (*cur)->conn_sin.sin_addr ));
 	    continue;
 	}
 
-	switch ( rc = netcheck_cookie( scookie, si, *cur, s, cfg )) {
+	rc = netcheck_cookie( scookie, rekey, si, *cur, s, cfg );
+	switch ( rc ) {
 	case COSIGN_OK :
 	case COSIGN_LOGGED_OUT :
 	    goto done;
@@ -568,8 +554,8 @@ cosign_check_cookie( char *scookie, struct sinfo *si, cosign_host_config *cfg,
 	    break;
 
 	default:
-	    cosign_log( APLOG_ERR, s,
-		    "mod_cosign: cosign_check_cookie: unknown return: %d", rc );
+	    cosign_log( APLOG_ERR, s, "mod_cosign: cosign_check_cookie: "
+			"netcheck_cookie returned unknown code: %d", rc );
 	case COSIGN_ERROR :
 	    if ( snet_close( (*cur)->conn_sn ) != 0 ) {
 		cosign_log( APLOG_ERR, s,
@@ -586,12 +572,6 @@ cosign_check_cookie( char *scookie, struct sinfo *si, cosign_host_config *cfg,
     return( COSIGN_ERROR );
 
 done:
-    if ( cur != cfg->cl ) {
-	tmp = *cur;
-	*cur = (*cur)->conn_next;
-	tmp->conn_next = *(cfg->cl);
-	*(cfg->cl) = tmp;
-    }
     if ( rc == COSIGN_LOGGED_OUT ) {
 	return( COSIGN_RETRY );
     } else {
@@ -612,6 +592,90 @@ done:
 	}
 #endif /* KRB */
 	return( COSIGN_OK );
+    }
+}
+
+    int
+connlist_create( struct connlist ***cl, char *host, unsigned short port,
+		 void *s )
+{
+    struct connlist	*new, **cur;
+    struct hostent	*he;
+    int			i, rc = -1;
+
+    if ( cl == NULL ) {
+	cosign_log( APLOG_ERR, s, "connlist_create: connlist argument "
+				  "cannot be NULL." );
+	return( -1 );
+    }
+
+    if (( he = gethostbyname( host )) == NULL ) {
+	cosign_log( APLOG_ERR, s, "connlist_create: gethostbyname %s: %s",
+		    host, hstrerror( h_errno ));
+	return( -1 );
+    }
+
+    if (( *cl = (struct connlist **)malloc( sizeof( struct connlist * )))
+		    == NULL ) {
+	cosign_log( APLOG_ERR, s, "connlist_create: malloc connlist: %s",
+		    strerror( errno ));
+	goto cleanup;
+    }
+
+    cur = *cl;
+    for ( i = 0; he->h_addr_list[ i ] != NULL; i++ ) {
+	if (( new = (struct connlist *)malloc( sizeof( struct connlist )))
+			== NULL ) {
+	    cosign_log( APLOG_ERR, s, "connlist_create: "
+			"malloc new connlist: %s", strerror( errno ));
+	    goto cleanup;
+	}
+	memset( &new->conn_sin, 0, sizeof( struct sockaddr_in ));
+	new->conn_sin.sin_family = AF_INET;
+	if ( port == 0 ) {
+	    new->conn_sin.sin_port = htons( 6663 );
+	} else {
+	    new->conn_sin.sin_port = port;
+	}
+	memcpy( &new->conn_sin.sin_addr.s_addr,
+		he->h_addr_list[ i ], (unsigned int)he->h_length );
+	new->conn_sn = NULL;
+
+	*cur = new;
+	cur = &new->conn_next;
+    }
+    *cur = NULL;
+
+    rc = 0;
+
+cleanup:
+    if ( rc < 0 ) {
+	connlist_destroy( cl, s );
+    }
+
+    return( rc );
+}
+
+    void
+connlist_destroy( struct connlist ***cl, void *s )
+{
+    struct connlist	**cur, **tmp;
+
+    if ( cl == NULL ) {
+	return;
+    }
+
+    for ( cur = *cl; cur != NULL && *cur != NULL; cur = tmp ) {
+	tmp = &(*cur)->conn_next;
+
+	if ( (*cur)->conn_sn != NULL ) {
+	    close_sn( *cur, s );
+	}
+	free( *cur );
+    }
+    if ( *cl != NULL ) {
+	free( *cl );
+	*cl = NULL;
     }
 }
 
