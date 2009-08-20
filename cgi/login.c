@@ -3,6 +3,8 @@
  * All Rights Reserved.  See LICENSE.
  */
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/param.h>
@@ -26,7 +28,7 @@
 
 #include "cosigncgi.h"
 #include "login.h"
-#include "config.h"
+#include "conf.h"
 #include "network.h"
 #include "subfile.h"
 #include "mkcookie.h"

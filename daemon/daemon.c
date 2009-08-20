@@ -3,6 +3,8 @@
   * All Rights Reserved.  See LICENSE.
   */
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -26,7 +28,7 @@
 
 #include "logname.h"
 #include "command.h"
-#include "config.h"
+#include "conf.h"
 #include "rate.h"
 #include "monster.h"
 #include "pusher.h"

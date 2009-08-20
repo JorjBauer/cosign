@@ -3,6 +3,8 @@
  * All Rights Reserved.  See COPYRIGHT.
  */
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
@@ -26,7 +28,7 @@
 #include "logname.h"
 #include "rate.h"
 #include "monster.h"
-#include "config.h"
+#include "conf.h"
 #include "srvcookiefs.h"
 
 /* idle_cache = (grey+idle) from cosignd, plus loggedout_cache here */

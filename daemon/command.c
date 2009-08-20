@@ -3,6 +3,8 @@
  * All Rights Reserved.  See LICENSE.
  */
 
+#include "config.h"
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -29,7 +31,7 @@
 #include <snet.h>
 
 #include "command.h"
-#include "config.h"
+#include "conf.h"
 #include "mkcookie.h"
 #include "rate.h"
 #include "argcargv.h"

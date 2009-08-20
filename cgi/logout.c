@@ -3,6 +3,8 @@
  * All Rights Reserved.  See LICENSE.
  */
 
+#include "config.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,7 +17,7 @@
 #include <snet.h>
 
 #include "cgi.h"
-#include "config.h"
+#include "conf.h"
 #include "cosigncgi.h"
 #include "network.h"
 #include "subfile.h"

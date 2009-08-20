@@ -24,7 +24,7 @@ COSIGNSYSLOG=LOG_DAEMON
 INCPATH=        @CPPFLAGS@ -I../common -I../libsnet @MYSQLINC@
 OPTOPTS=        @OPTOPTS@ @UNIVERSAL_OPTOPTS@
 CC=             @CC@
-DEFS=           @TLSDEFS@ -D_COSIGN_TICKET_CACHE=\"${COSIGNTICKETCACHE}\"
+DEFS=           -D_COSIGN_TICKET_CACHE=\"${COSIGNTICKETCACHE}\"
 LIBS=           -lsnet @LIBS@ @MYSQLLIBS@
 LDFLAGS=        -L../libsnet/.libs -L/sw/lib @LDFLAGS@ @MYSQLLDFLAGS@ ${LIBS}
 INSTALL=        @INSTALL@
@@ -36,11 +36,11 @@ CFLAGS=         ${DEFS} ${OPTOPTS} @CFLAGS@ ${INCPATH}
 SRC= daemon.c command.c logname.c pusher.c mnet.c
 MONSTER = monster.c logname.c mnet.c
 MOBJ = monster.o ../common/@cookiefs_file@.o logname.o mnet.o ../common/argcargv.o \
-	../common/config.o  ../common/fbase64.o ../common/mkcookie.o \
+	../common/conf.o  ../common/fbase64.o ../common/mkcookie.o \
 	../common/wildcard.o ../version.o
 COSIGNOBJ= daemon.o command.o ../common/@cookiefs_file@.o logname.o \
 	pusher.o mnet.o ../common/argcargv.o ../common/fbase64.o \
-	../common/config.o ../common/mkcookie.o ../common/rate.o \
+	../common/conf.o ../common/mkcookie.o ../common/rate.o \
 	../common/wildcard.o ../version.o
 TARGETS=	cosignd monster
 MANTARGETS=	cosignd.8 monster.8 cosign.conf.5

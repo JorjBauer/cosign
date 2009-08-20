@@ -20,7 +20,7 @@ FRIEND_MYSQL_PASSWD = @frienddbpasswd@
 INCPATH=     @CPPFLAGS@ @KINC@ @MYSQLINC@ -I../common -I../libsnet -I../libcgi
 OPTOPTS=     @OPTOPTS@ @UNIVERSAL_OPTOPTS@
 CC=          @CC@
-DEFS=        @TLSDEFS@ @SQLDEFS@ @KRBDEFS@
+DEFS=
 LIBS=        -lsnet -lcgi @LIBS@ @KLIBS@ @MYSQLLIBS@
 LDFLAGS=     -L../libsnet/.libs -L../libcgi @LDFLAGS@ @KLDFLAGS@ @MYSQLLDFLAGS@ ${LIBS}
 INSTALL=     @INSTALL@
@@ -29,7 +29,7 @@ CFLAGS=      ${DEFS} ${OPTOPTS} @CFLAGS@ ${INCPATH}
 
 
 OBJ     = network.o subfile.o ../common/mkcookie.o ../common/fbase64.o \
-	../common/config.o ../common/wildcard.o ../common/argcargv.o \
+	../common/conf.o ../common/wildcard.o ../common/argcargv.o \
 	../version.o 
 TARGETS = logout cosign.cgi
 
