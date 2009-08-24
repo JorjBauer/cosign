@@ -1336,6 +1336,9 @@ command( int fd, SNET *pushersn )
 	if ( debug ) {
 	    printf( "debug: %s\n", line );
 	}
+#if 1
+	syslog( LOG_INFO, "debug: %s", line );
+#endif
 	if (( ac = argcargv( line, &av )) < 0 ) {
 	    syslog( LOG_ERR, "argcargv: %m" );
 	    break;
