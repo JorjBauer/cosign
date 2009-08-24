@@ -46,6 +46,7 @@ extern int			idle_out_time;
 extern int			grey_time;
 extern int			hashlen;
 extern int			strict_checks;
+extern int			cosign_daemon_debug;
 extern struct timeval		cosign_net_timeout;
 extern struct sockaddr_in	cosign_sin;
 extern char			*cosign_tickets;
@@ -1335,6 +1336,9 @@ command( int fd, SNET *pushersn )
 	tv = cosign_net_timeout;
 	if ( debug ) {
 	    printf( "debug: %s\n", line );
+	}
+	if ( cosign_daemon_debug ) {
+	    syslog( LOG_INFO, "debug: %s", line );
 	}
 	if (( ac = argcargv( line, &av )) < 0 ) {
 	    syslog( LOG_ERR, "argcargv: %m" );
