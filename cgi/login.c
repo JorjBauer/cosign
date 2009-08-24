@@ -284,8 +284,8 @@ cosign_login_krb5( struct connlist *head, char *cosignname, char *id,
     }
 
     krb5_get_init_creds_opt_init( &kopts );
-    krb5_get_init_creds_opt_set_tkt_life( &kopts, 10*60*60 );
-    krb5_get_init_creds_opt_set_renew_life( &kopts, 0 );
+    krb5_get_init_creds_opt_set_tkt_life( &kopts, 30 ); /* Jorj: 30 seconds, not 10 hours */
+    krb5_get_init_creds_opt_set_renew_life( &kopts, 1 ); /* Jorj: 1 second, not 0 */
     krb5_get_init_creds_opt_set_forwardable( &kopts, 1 );
     krb5_get_init_creds_opt_set_proxiable( &kopts, 0 );
 
