@@ -46,6 +46,7 @@ int		idle_out_time = 60 * 60 * 2;
 int		grey_time = 60 * 30;
 int		hashlen = 0;
 int		strict_checks = 1;
+int		cosign_daemon_debug = 0;
 char		*cosign_dir = _COSIGN_DIR;
 char		*cosign_tickets = _COSIGN_TICKET_CACHE;
 char		*cosign_conf = _COSIGN_CONF;
@@ -105,6 +106,13 @@ daemon_configure()
 	    strict_checks = 0;
 	}
     }
+
+    if (( val = cosign_config_get( COSIGNDAEMONDEBUG )) != NULL ) {
+	if ( strcasecmp( val, "on" ) == 0 ) {
+	    cosign_daemon_debug = 1;
+	}
+    }
+
 }
 
     void
