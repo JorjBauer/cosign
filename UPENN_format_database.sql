@@ -30,6 +30,7 @@ CREATE TABLE factor_timeouts (
        timestamp integer not null,
        KEY(factor),
        KEY(login_cookie),
+       KEY(login_cookie,factor),
        FOREIGN KEY (login_cookie) REFERENCES login_cookies(login_cookie)
 	ON DELETE CASCADE
 ) ENGINE=InnoDB;
