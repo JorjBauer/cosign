@@ -32,8 +32,6 @@ AC_ARG_ENABLE(friend,
 AC_SUBST(SQLDEFS)
 
 
-AC_ARG_WITH(friend, AC_HELP_STRING([--enable-friend], [enable friend logins using mysql in the cgi]), CHECK_FRIEND, AC_MSG_RESULT( friend not enabled ))
-
 AC_ARG_WITH(gss, AC_HELP_STRING([--with-gss], [enable apache filter
 to set up GSSAPI ]), CHECK_GSS, AC_MSG_RESULT( GSSAPI not enabled))
 
