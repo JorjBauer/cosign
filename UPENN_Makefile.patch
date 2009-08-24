@@ -1,0 +1,11 @@
+--- Makefile.in.orig	Mon Aug 24 14:04:32 2009
++++ Makefile.in	Mon Aug 24 14:04:56 2009
+@@ -3,7 +3,7 @@
+ CC=	@CC@
+ ALL=	common libsnet libcgi cgi html daemon 
+ FILTERS= @FILTERS@ 
+-TARGETS= cgi html daemon ${FILTERS}
++TARGETS= cgi daemon ${FILTERS}
+ OPTOPTS= @OPTOPTS@ @UNIVERSAL_OPTOPTS@
+ CFLAGS=	${OPTOPTS} @CFLAGS@
+ LDFLAGS= @LDFLAGS@
