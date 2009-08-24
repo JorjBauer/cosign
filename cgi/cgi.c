@@ -29,7 +29,7 @@
 
 #define SERVICE_MENU	"/services/"
 #define LOOPWINDOW      30 
-#define MAXLOOPCOUNT	10	
+#define MAXLOOPCOUNT	5        /* UPenn: reduced to 5 */
 #define MAXCOOKIETIME	86400	 /* Valid life of session cookie: 24 hours */
 
 #define kUNSATISFIED     0
