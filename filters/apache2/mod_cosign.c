@@ -41,7 +41,11 @@
 #include "cosignpaths.h"
 #include "log.h"
 
+#define COSIGN_MERGE_TYPE_COMMAND	0
+#define COSIGN_MERGE_TYPE_REQUEST	1
+
 static int	cosign_redirect( request_rec *, cosign_host_config * );
+static cosign_host_config	*cosign_merge_cfg( void *, void *, int );
 
 /* Our exported link to Apache. */
 module AP_MODULE_DECLARE_DATA cosign_module;
@@ -193,16 +197,10 @@ cosign_handler( request_rec *r )
 	return( HTTP_METHOD_NOT_ALLOWED );
     }
 
-#ifdef notdef
-    cfg = (cosign_host_config *)ap_get_module_config( r->server->module_config,
-						      &cosign_module );
-#endif /* notdef */
-    cfg = (cosign_host_config *)ap_get_module_config(
-            r->per_dir_config, &cosign_module);
-    if ( !cfg->configured ) {
-        cfg = (cosign_host_config *)ap_get_module_config(
-                r->server->module_config, &cosign_module);
-    }
+    cfg = (cosign_host_config *)ap_get_module_config( r->per_dir_config,
+							&cosign_module );
+    cfg = (cosign_host_config *)cosign_merge_cfg( r, cfg,
+				COSIGN_MERGE_TYPE_REQUEST );
     if ( !cfg->configured ) {
 	cosign_log( APLOG_ERR, r->server, "mod_cosign not configured" );
 	return( HTTP_SERVICE_UNAVAILABLE );
@@ -517,10 +515,12 @@ redirect:
     }
 
 }
+
     static cosign_host_config *
-cosign_merge_cfg( cmd_parms *params, void *mconfig )
+cosign_merge_cfg( void *owner, void *mconfig, int mtype )
 {
     cosign_host_config          *cfg, *scfg;
+    apr_pool_t			*pool;
 
     /* apache's built-in (request time) merge is for directories only or
      * servers only, there's no way to inherit server config in a directory.
@@ -529,15 +529,26 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
      * preecede the directory or location specific ones in the config file.
      */
 
-    scfg = (cosign_host_config *) ap_get_module_config(
-                params->server->module_config, &cosign_module );
-    if ( params->path == NULL ) {
-        return( scfg );
+    if ( mtype == COSIGN_MERGE_TYPE_COMMAND ) {
+	scfg = (cosign_host_config *)ap_get_module_config(
+		((cmd_parms *)owner)->server->module_config, &cosign_module );
+	if ( ((cmd_parms *)owner)->path == NULL ) {
+	    return( scfg );
+	}
+	pool = ((cmd_parms *)owner)->pool;
+	
+    } else if ( mtype == COSIGN_MERGE_TYPE_REQUEST ) {
+	scfg = (cosign_host_config *)ap_get_module_config(
+		((request_rec *)owner)->server->module_config, &cosign_module);
+	if ( mconfig == NULL ) {
+	    return( scfg );
+	}
+	pool = ((request_rec *)owner)->pool;
     }
 
     cfg = (cosign_host_config *)mconfig;
     if ( cfg->siteentry == NULL ) {
-        cfg->siteentry = apr_pstrdup( params->pool, scfg->siteentry );
+        cfg->siteentry = apr_pstrdup( pool, scfg->siteentry );
     }
     if ( cfg->reqfv == NULL ) {
         cfg->reqfv = scfg->reqfv;
@@ -546,7 +557,7 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
         cfg->reqfc = scfg->reqfc;
     }
     if ( cfg->suffix == NULL ) {
-        cfg->suffix = apr_pstrdup( params->pool, scfg->suffix );
+        cfg->suffix = apr_pstrdup( pool, scfg->suffix );
     }
     if ( cfg->fake == -1 ) {
         cfg->fake = scfg->fake;
@@ -557,24 +568,31 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
     if ( cfg->protect == -1 ) {
         cfg->protect = scfg->protect;
     }
+    if ( cfg->validref == NULL ) {
+	cfg->validref = apr_pstrdup( pool, scfg->validref );
+	cfg->validpreg = scfg->validpreg;
+    }
+    if ( cfg->referr == NULL ) {
+	cfg->referr = apr_pstrdup( pool, scfg->referr );
+    }
 
-    cfg->filterdb = apr_pstrdup( params->pool, scfg->filterdb );
+    cfg->filterdb = apr_pstrdup( pool, scfg->filterdb );
     cfg->hashlen =  scfg->hashlen;
     cfg->checkip =  scfg->checkip;
-    cfg->proxydb = apr_pstrdup( params->pool, scfg->proxydb );
-    cfg->tkt_prefix = apr_pstrdup( params->pool, scfg->tkt_prefix );
+    cfg->proxydb = apr_pstrdup( pool, scfg->proxydb );
+    cfg->tkt_prefix = apr_pstrdup( pool, scfg->tkt_prefix );
 
     if ( cfg->service == NULL ) {
-        cfg->service = apr_pstrdup( params->pool, scfg->service );      
+        cfg->service = apr_pstrdup( pool, scfg->service );      
     }
     if ( cfg->redirect == NULL ) {
-        cfg->redirect = apr_pstrdup( params->pool, scfg->redirect );
+        cfg->redirect = apr_pstrdup( pool, scfg->redirect );
     }
     if ( cfg->host == NULL ) {
-        cfg->host = apr_pstrdup( params->pool, scfg->host );
+        cfg->host = apr_pstrdup( pool, scfg->host );
     }
     if ( cfg->posterror == NULL ) {
-        cfg->posterror = apr_pstrdup( params->pool, scfg->posterror );
+        cfg->posterror = apr_pstrdup( pool, scfg->posterror );
     }
     if ( cfg->port == 0 ) {
         cfg->port = scfg->port;
@@ -609,13 +627,13 @@ cosign_merge_cfg( cmd_parms *params, void *mconfig )
 #endif /* KRB */
 
     if ( cfg->key == NULL ) {
-      cfg->key = apr_pstrdup( params->pool, scfg->key );
+      cfg->key = apr_pstrdup( pool, scfg->key );
     }
     if ( cfg->cert == NULL ) {
-      cfg->cert = apr_pstrdup( params->pool, scfg->cert );
+      cfg->cert = apr_pstrdup( pool, scfg->cert );
     }
     if ( cfg->cadir == NULL ) {
-      cfg->cadir = apr_pstrdup( params->pool, scfg->cadir );
+      cfg->cadir = apr_pstrdup( pool, scfg->cadir );
     }
 
     return( cfg );
@@ -626,7 +644,7 @@ set_cosign_protect( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->protect = flag;
     cfg->configured = 1;
@@ -638,7 +656,7 @@ set_cosign_post_error( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->posterror = apr_pstrdup( params->pool, arg );
     cfg->configured = 1;
@@ -650,7 +668,7 @@ set_cosign_valid_reference( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->validref = apr_pstrdup( params->pool, arg );
     if (( cfg->validpreg = ap_pregcomp( params->pool, cfg->validref,
@@ -672,7 +690,7 @@ set_cosign_validation_error_redirect( cmd_parms *params,
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->referr = apr_pstrdup( params->pool, arg );
     cfg->configured = 1;
@@ -685,7 +703,7 @@ set_cosign_service( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     if ( strncmp( arg, "cosign-", strlen( "cosign-" )) == 0 ) {
 	cfg->service = apr_pstrdup( params->pool, arg );
@@ -702,7 +720,7 @@ set_cosign_siteentry( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->siteentry = apr_pstrdup( params->pool, arg );
     cfg->configured = 1;
@@ -714,7 +732,7 @@ set_cosign_checkip( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     if ( strcasecmp( arg, "never" ) == 0 ) {
         cfg->checkip = IPCHECK_NEVER;
@@ -738,7 +756,7 @@ set_cosign_factor( cmd_parms *params, void *mconfig, const char *arg )
     char                        **av;
     char                        *arg0;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     if (( acav = acav_alloc()) == NULL ) {
         cosign_log( APLOG_ERR, params->server, "mod_cosign: set_cosign_factor:"
@@ -771,7 +789,7 @@ set_cosign_factorsuffix( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->suffix = apr_pstrdup( params->pool, arg );
     cfg->configured = 1;
@@ -783,7 +801,7 @@ set_cosign_ignoresuffix( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->fake = flag;
     cfg->configured = 1;
@@ -795,7 +813,7 @@ set_cosign_public( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->public = flag;
     cfg->configured = 1;
@@ -809,7 +827,7 @@ set_cosign_port( cmd_parms *params, void *mconfig, const char *arg )
     int			 portarg;
     struct connlist	 *cur;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     portarg = strtol( arg, (char **)NULL, 10 );
     cfg->port = htons( portarg );
@@ -830,7 +848,7 @@ set_cosign_redirect( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->redirect = apr_pstrdup( params->pool, arg );
     cfg->configured = 1;
@@ -911,7 +929,7 @@ set_cosign_gss( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->gss = flag; 
     cfg->configured = 1; 
@@ -924,7 +942,7 @@ set_cosign_tickets( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->krbtkt = flag; 
     cfg->configured = 1; 
@@ -937,7 +955,7 @@ set_cosign_proxy_cookies( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->proxy = flag;
     cfg->configured = 1;
@@ -951,7 +969,7 @@ set_cosign_certs( cmd_parms *params, void *mconfig,
     cosign_host_config		*cfg;
     struct stat			st;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->key = apr_pstrdup( params->pool, one );
     cfg->cert = apr_pstrdup( params->pool, two );
@@ -1033,7 +1051,7 @@ set_cosign_host( cmd_parms *params, void *mconfig, const char *arg )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->host = apr_pstrdup( params->pool, arg );
 
@@ -1051,7 +1069,7 @@ set_cosign_http( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->http = flag;
     cfg->configured = 1;
@@ -1063,7 +1081,7 @@ set_cosign_noappendport( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config          *cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->noappendport = flag;
     cfg->configured = 1;
