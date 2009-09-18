@@ -366,8 +366,10 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	realm_ptr = new_ci.ci_realm;
-	realm_ptr += sprintf( realm_ptr, "%s", fv[ 0 ] );
-	for( i = 1; i < fc; i++ ) {
+	if ( fc > 0 ) {
+	    realm_ptr += sprintf( realm_ptr, "%s", fv[ 0 ] );
+	}
+	for ( i = 1; i < fc; i++ ) {
 	    realm_ptr += sprintf( realm_ptr, " %s", fv[ i ] );
 	}
 	for ( i = 4; i < ac; i++ ) {

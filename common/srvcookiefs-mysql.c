@@ -451,7 +451,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
   const char *read_factor_template = "SELECT factor "
       "FROM factor_timeouts "
       "WHERE login_cookie=?";
-  int sz, left;
+  int sz, left, fr;
   char *p;
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 1 ];
@@ -553,7 +553,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
   ci->ci_realm[ 0 ] = '\0';
   left = sizeof( ci->ci_realm );
   p = ci->ci_realm;
-  while ( mysql_stmt_fetch( q ) == 0 ) {
+  while (( fr = mysql_stmt_fetch( q )) == 0 ) {
       if ( left <= strlen( a_factor ) + 1 ) { /* +1 for space; <= for NUL */
 	  syslog( LOG_ERR, 
 		  "cookiedb_mysql_read: insufficient buffer space for factor list" );
@@ -563,6 +563,17 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
       p += sz;
       left -= sz;
   }
+  if ( fr != MYSQL_NO_DATA ) {
+      if ( fr == MYSQL_DATA_TRUNCATED ) {
+	  syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_fetch returned "
+			   "truncated data\n" );
+      } else {
+	  syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_fetch failed: "
+			   "%s\n", mysql_stmt_error( q ));
+      }
+      goto error;
+  }
+
   /* Remove trailing space */
   if ( p != ci->ci_realm && *(p-1) == ' ' ) {
       *(p-1) = '\0';
