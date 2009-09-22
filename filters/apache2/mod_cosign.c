@@ -520,30 +520,32 @@ redirect:
 cosign_merge_cfg( void *owner, void *mconfig, int mtype )
 {
     cosign_host_config          *cfg, *scfg;
+    cmd_parms			*cmd;
+    request_rec			*r;
     apr_pool_t			*pool;
 
-    /* apache's built-in (request time) merge is for directories only or
+    /*
+     * apache's built-in (request time) merge is for directories only or
      * servers only, there's no way to inherit server config in a directory.
-     * So we do that here. Do note that because this is a config time merge,
-     * this has a side effect of requiring all server-wide directives to
-     * preecede the directory or location specific ones in the config file.
+     * So we do that here.
      */
 
     if ( mtype == COSIGN_MERGE_TYPE_COMMAND ) {
+	cmd = (cmd_parms *)owner;
 	scfg = (cosign_host_config *)ap_get_module_config(
-		((cmd_parms *)owner)->server->module_config, &cosign_module );
-	if ( ((cmd_parms *)owner)->path == NULL ) {
+			    cmd->server->module_config, &cosign_module );
+	if ( cmd->path == NULL ) {
 	    return( scfg );
 	}
-	pool = ((cmd_parms *)owner)->pool;
-	
+	pool = cmd->pool;
     } else if ( mtype == COSIGN_MERGE_TYPE_REQUEST ) {
+	r = (request_rec *)owner;
 	scfg = (cosign_host_config *)ap_get_module_config(
-		((request_rec *)owner)->server->module_config, &cosign_module);
+		r->server->module_config, &cosign_module);
 	if ( mconfig == NULL ) {
 	    return( scfg );
 	}
-	pool = ((request_rec *)owner)->pool;
+	pool = r->pool;
     }
 
     cfg = (cosign_host_config *)mconfig;
