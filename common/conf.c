@@ -894,12 +894,10 @@ read_config( char *path )
 	    return( -1 );
 	  }
 
-	  if ( !strcasecmp( av[ 1 ], "true" ) &&
-	       !strcasecmp( av[ 1 ], "false" ) ) {
-	    fprintf( stderr,
-		     "line %d: keyword %s expects 'true' or 'false'\n",
-		     linenum, 
-		     av[ 0 ] );
+	  if ( strcasecmp( av[ 1 ], "true" ) != 0 &&
+	       strcasecmp( av[ 1 ], "false" ) != 0 ) {
+	    fprintf( stderr, "line %d: keyword %s expects 'true' or 'false'\n",
+		     linenum, av[ 0 ] );
 	    return( -1 );
 	  }
 
