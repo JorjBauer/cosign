@@ -55,6 +55,24 @@ validchars( char *s )
     return( 1 );
 }
 
+/*
+ * identical to validchars, but allows '/' in the username 
+ * for krb5 principals with non-null instances.
+ *
+ * only used by cosign.cgi.
+ */
+    int
+validuser( char *u )
+{
+    int		rc = 0;
+
+    valid_tab[ '/' ] = 1;
+    rc = validchars( u );
+    valid_tab[ '/' ] = 0;
+
+    return( rc );
+}
+
     int
 mkcookie( int len, char *buf )
 {

@@ -5,6 +5,7 @@
 
 int mkcookie( int, char * );
 int validchars( char * );
+int validuser( char * );
 
 #define MAXCOOKIELEN    1024
 
