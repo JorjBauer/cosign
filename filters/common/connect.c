@@ -166,9 +166,10 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
     }
     if ( rekey != NULL ) {
 	/* last factor is penultimate argument */
-	factor_limit = ac - 1;
+	mf = ac - 1;
     } else {
-	factor_limit = ac;
+	/* last factor is last argument */
+	mf = ac;
     }
 
     /* I guess we check some sizing here :) */
@@ -188,7 +189,7 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
     si->si_protocol = cosign_protocol;
     if ( cosign_protocol == 2 ) {
 	for ( i = 0; i < fc; i++ ) {
-	    for ( j = 3; j < factor_limit; j++ ) {
+	    for ( j = 3; j < mf; j++ ) {
 		if ( strcmp( fv[ i ], av[ j ] ) == 0 ) {
 		    break;
 		}
@@ -214,7 +215,7 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 		}
 		    }
 	    }
-	    if ( j >= factor_limit ) {
+	    if ( j >= mf ) {
 		/* a required factor wasn't in the check line */
 		break;
 	    }
@@ -233,7 +234,7 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 	}
 	strcpy( si->si_factor, av[ 3 ] );
 
-	for ( i = 4; i < factor_limit; i++ ) {
+	for ( i = 4; i < mf; i++ ) {
 	    if ( strlen( av[ i ] ) + 1 + 1 >
 		    sizeof( si->si_factor ) - strlen( si->si_factor )) {
 		cosign_log( APLOG_ERR, s,
@@ -251,18 +252,18 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 	return( COSIGN_ERROR );
     }
     strcpy( si->si_realm, av[ 3 ] );
+
 #ifdef KRB
     *si->si_krb5tkt = '\0';
 #endif /* KRB */
 
     if ( rekey != NULL ) {
 	if (( rekeyed_cookie = strdup( av[ ac - 1 ] )) == NULL ) {
-	    cosign_log( APLOG_ERR, s, "mod_cosign: netcheck_cookie: "
-			"strdup rekeyed cookie: %s", strerror( errno ));
+	    cosign_log( APLOG_ERR, s,
+		    "mod_cosign: netcheck_cookie: strdup rekeyed cookie: %s",
+		    strerror( errno ));
 	    return( COSIGN_ERROR );
 	}
-
-	/* caller must free rekeyed cookie. */
 	*rekey = rekeyed_cookie;
     }
 
@@ -574,6 +575,10 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     return( COSIGN_ERROR );
 
 done:
+    if ( rekey && *rekey ) {
+	/* use the rekeyed cookie to request tickets and proxy cookies */
+	scookie = *rekey;
+    }
     if ( rc == COSIGN_LOGGED_OUT ) {
 	return( COSIGN_RETRY );
     } else {

@@ -1050,7 +1050,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
     if ( status == 231 && rekey ) {
-	/* rekey service cookie */
+	/* rekey service cookie. */
 
 	if ( mkcookie( sizeof( rekeybuf ), rekeybuf ) != 0 ) {
 	    syslog( LOG_ERR, "f_check: rekey: mkcookie failed" );
@@ -1058,8 +1058,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    return( 1 );
 	}
 	if (( p = strchr( av[ 1 ], '=' )) == NULL ) {
-	    syslog( LOG_ERR, "f_check: rekey: bad service cookie value: "
-			     "\"%s\".", av[ 1 ] );
+	    syslog( LOG_ERR, "f_check: rekey: bad service name \"%s\".", av[1]);
 	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
 	    return( 1 );
 	}

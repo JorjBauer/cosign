@@ -267,13 +267,16 @@ cosign_handler( request_rec *r )
     }
 
     cv = cosign_cookie_valid( cfg, cookie, &rekey, &si,
-	    r->connection->remote_ip, r->server );
+		r->connection->remote_ip, r->server );
+    if ( rekey != NULL ) {
+	/* we got a rekeyed cookie. let the request pool free it later. */
+	ap_register_cleanup( r->pool, (void *)rekey, free, ap_null_cleanup );
+	
+	cookie = rekey;
+    }
     switch ( cv ) {
     default:
     case COSIGN_ERROR:				
-	if ( rekey != NULL ) {
-	    free( rekey );
-	}
 	return( HTTP_SERVICE_UNAVAILABLE );	/* it's all forbidden! */
 
     case COSIGN_RETRY:
@@ -282,9 +285,6 @@ cosign_handler( request_rec *r )
 	 * and let filter deal with it. May result in a
 	 * redirect back to central login page.
 	 */
-	if ( rekey != NULL ) {
-	    free( rekey );
-	}
 	ap_table_set( r->headers_out, "Location", dest );
 	return( HTTP_MOVED_PERMANENTLY );
 
@@ -292,13 +292,6 @@ cosign_handler( request_rec *r )
 	break;
     } 
 
-    if ( rekey != NULL ) {
-	/*
-	 * use the rekeyed cookie if we got one. should be impossible for
-	 * rekey to be NULL here, but make no assumptions.
-	 */
-	cookie = rekey;
-    }
     gettimeofday( &now, NULL );
     if ( strncmp( dest, "http://", strlen( "http://" )) == 0 ) {
 	/* if we're redirecting to http, can set insecure cookie */
@@ -307,10 +300,6 @@ cosign_handler( request_rec *r )
     } else {
 	full_cookie = ap_psprintf( r->pool, "%s/%lu; path=/; secure",
 				    cookie, now.tv_sec );
-    }
-
-    if ( rekey != NULL ) {
-	free( rekey );
     }
 
     /* we get here, everything's OK. set cookie and redirect to dest. */
@@ -461,7 +450,7 @@ cosign_auth( request_rec *r )
      * Otherwise, retrieve the auth info from the server.
      */
     cv = cosign_cookie_valid( cfg, my_cookie, NULL, &si,
-	    r->connection->remote_ip, r->server );	
+		r->connection->remote_ip, r->server );
 
     if ( cv == COSIGN_ERROR ) {
 	return( HTTP_SERVICE_UNAVAILABLE );

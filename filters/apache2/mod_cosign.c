@@ -262,14 +262,19 @@ cosign_handler( request_rec *r )
 			"mod_cosign: cookie contains invalid characters" );
 	goto validation_failed;
     }
+
     cv = cosign_cookie_valid( cfg, cookie, &rekey, &si,
-	    r->connection->remote_ip, r->server );
+		r->connection->remote_ip, r->server );
+    if ( rekey != NULL ) {
+	/* we got a rekeyed cookie. let the request pool free it later. */
+	apr_pool_cleanup_register( r->pool, (void *)rekey, (void *)free,
+					apr_pool_cleanup_null );
+
+	cookie = rekey;
+    }
     switch ( cv ) {
     default:
     case COSIGN_ERROR:
-	if ( rekey != NULL ) {
-	    free( rekey );
-	}
 	return( HTTP_SERVICE_UNAVAILABLE );	/* it's all forbidden! */
 
     case COSIGN_RETRY:
@@ -278,23 +283,11 @@ cosign_handler( request_rec *r )
 	 * and let filter deal with it. May result in a
 	 * redirect back to central login page. 
 	 */
-	if ( rekey != NULL ) {
-	    free( rekey );
-	}
-
 	apr_table_set( r->headers_out, "Location", dest );
 	return( HTTP_MOVED_PERMANENTLY );
 
     case COSIGN_OK:
 	break;
-    }
-
-    if ( rekey != NULL ) {
-	/*
-	 * use the rekeyed cookie if we got one. should be impossible for
-	 * rekey to be NULL at this point, but make no assumptions.
-	 */
-	cookie = rekey;
     }
 
     gettimeofday( &now, NULL );
@@ -310,10 +303,6 @@ cosign_handler( request_rec *r )
     /* we get here, everything's OK. set the cookie and redirect to dest. */
     apr_table_set( r->err_headers_out, "Set-Cookie", full_cookie );
     apr_table_set( r->headers_out, "Location", dest );
-
-    if ( rekey != NULL ) {
-	free( rekey );
-    }
 
     return( HTTP_MOVED_PERMANENTLY );
 
@@ -458,7 +447,7 @@ cosign_auth( request_rec *r )
      * Otherwise, retrieve the auth info from the server.
      */
     cv = cosign_cookie_valid( cfg, my_cookie, NULL, &si,
-	    r->connection->remote_ip, r->server );
+		r->connection->remote_ip, r->server );
     if ( cv == COSIGN_ERROR ) {
 	return( HTTP_SERVICE_UNAVAILABLE );	/* it's all forbidden! */
     } 
