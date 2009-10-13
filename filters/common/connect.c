@@ -89,7 +89,7 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
     /* These variable names are terrible. 'fc' is the count of required
      * factors. 'fv' is the value list of required factors. */
     int			i, j, ac, rc, fc = cfg->reqfc;
-    int			factor_limit;
+    int			mf;
     char		*p, *line, **av, **fv = cfg->reqfv;
     char		*rekeyed_cookie = NULL;
     struct timeval      tv;
