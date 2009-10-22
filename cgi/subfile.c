@@ -1,24 +1,37 @@
 #include "config.h"
 
-#include <stdlib.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "subfile.h"
 
     void
-subfile( char *filename, struct subfile_list *sl, int nocache )
+subfile( char *filename, struct subfile_list *sl, int opts, ... )
 {
     FILE	*fs;
+    va_list	vl;
     int 	c, i, j;
     char	nasties[] = "<>(){}[]'`\" \\";
 
-    if ( nocache ) {
+    if ( opts & SUBF_OPT_NOCACHE ) {
 	fputs( "Expires: Mon, 16 Apr 1973 13:10:00 GMT\n"
 		"Last-Modified: Mon, 16 Apr 1973 13:10:00 GMT\n"
 		"Cache-Control: no-store, no-cache, must-revalidate\n"
 		"Cache-Control: pre-check=0, post-check=0, max-age=0\n"
 		"Pragma: no-cache\n", stdout );
+    }
+    if ( opts & SUBF_OPT_SETSTATUS ) {
+	/* set HTTP Status header */
+	va_start( vl, opts );
+	i = va_arg( vl, int );
+	va_end( vl );
+	if ( i < 200 || i > 600 ) {
+	    /* unlikely http status code */
+	    i = 200;
+	}
+	printf( "Status: %d\n", i );
     }
 
     fputs( "Content-type: text/html\n\n", stdout );

@@ -128,7 +128,7 @@ loop_checker( int time, int count, char *cookie )
     if ( gettimeofday( &tv, NULL ) != 0 ) {
 	sl[ SL_TITLE ].sl_data = "Error: Loop Breaker";
 	sl[ SL_ERROR ].sl_data = "Please try again later.";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
 
@@ -140,7 +140,7 @@ loop_checker( int time, int count, char *cookie )
 		"%s/%d/%d", cookie, time, count) >= sizeof( new_cookie )) {
 	    sl[ SL_TITLE ].sl_data = "Error: Loop Breaker";
 	    sl[ SL_ERROR ].sl_data = "Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 	printf( "Set-Cookie: %s; path=/; secure\n", new_cookie );
@@ -155,7 +155,7 @@ loop_checker( int time, int count, char *cookie )
 		"%s/%d/%d", cookie, time, count) >= sizeof( new_cookie )) {
 	    sl[ SL_TITLE ].sl_data = "Error: Loop Breaker";
 	    sl[ SL_ERROR ].sl_data = "Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 	printf( "Location: %s\n\n", loop_page );
@@ -168,7 +168,7 @@ loop_checker( int time, int count, char *cookie )
 	    "%s/%d/%d", cookie, time, count) >= sizeof( new_cookie )) {
 	sl[ SL_TITLE ].sl_data = "Error: Loop Breaker";
 	sl[ SL_ERROR ].sl_data = "Please try again later.";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
     printf( "Set-Cookie: %s; path=/; secure\n", new_cookie );
@@ -350,31 +350,31 @@ main( int argc, char *argv[] )
     if (( script = getenv( "SCRIPT_NAME" )) == NULL ) {
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Unable to retrieve the script name";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
     if (( method = getenv( "REQUEST_METHOD" )) == NULL ) {
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Unable to retrieve method";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit(0);
     }
     if (( ip_addr = getenv( "REMOTE_ADDR" )) == NULL ) {
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Unable to retrieve IP address";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit(0);
     }
     if (( server_name = getenv( "SERVER_NAME" )) == NULL ) {
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Unable to retrieve server name";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit(0);
     }
     if (( sport = getenv( "SERVER_PORT" )) == NULL ) {
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Unable to retrieve server port";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit(0);
     }
     server_port = atoi( sport);
@@ -387,7 +387,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: X509 failed";
 	    sl[ SL_ERROR ].sl_data = "There was an x.509 mutual authentication"
 		    " configuration error. Contact your administrator.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 	remote_user = login;
@@ -401,7 +401,7 @@ main( int argc, char *argv[] )
 		sl[ SL_TITLE ].sl_data = "Error: Negotiate login failed";
 	 	sl[ SL_ERROR ].sl_data = "There was a problem processing your"
 			" authentication data. Contact your administrator";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit ( 0 );
 	    }
 	    remote_user = login;
@@ -424,7 +424,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Unrecognized Service";
 	    sl[ SL_ERROR ].sl_data = "Unable to determine referring "
 		    "service from query string.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 	    exit( 0 );
 	}
 
@@ -438,7 +438,7 @@ main( int argc, char *argv[] )
 		sl[ SL_TITLE ].sl_data = "Error: malformatted factors";
 		sl[ SL_ERROR ].sl_data = "Unable to determine required "
 			"factors from query string.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 		exit( 0 );
 	    }
 	    factor++;
@@ -455,7 +455,7 @@ main( int argc, char *argv[] )
 	    if ( strncmp( service, "cosign-", 7 ) != 0 ) {
 		sl[ SL_TITLE ].sl_data = "Error: Unrecognized Service";
 		sl[ SL_ERROR ].sl_data = "Bad service in query string.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 		exit( 0 );
 	    }
 	    sl[ SL_SERVICE ].sl_data = service;
@@ -464,7 +464,7 @@ main( int argc, char *argv[] )
 		sl[ SL_TITLE ].sl_data = "Error: malformatted referrer";
 		sl[ SL_ERROR ].sl_data = "Unable to determine referring "
 			"service from query string.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 		exit( 0 );
 	    }
 	    sl[ SL_REF ].sl_data = ref;
@@ -486,7 +486,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Cookies Required";
 	    sl[ SL_ERROR ].sl_data = "This service requires that "
 		    "cookies be enabled.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 	    exit( 0 );
 	}
 	goto loginscreen;
@@ -504,7 +504,7 @@ main( int argc, char *argv[] )
 	if ( gettimeofday( &tv, NULL ) != 0 ) {
 	    sl[ SL_TITLE ].sl_data = "Error: Login Screen";
 	    sl[ SL_ERROR ].sl_data = "Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -524,7 +524,7 @@ main( int argc, char *argv[] )
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "We were unable to contact the "
 		"authentication server.  Please try again later.";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
 
@@ -535,7 +535,7 @@ main( int argc, char *argv[] )
 	sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 	sl[ SL_ERROR ].sl_data = "Failed to initialise connections "
 		"to the authentication server. Please try again later";
-	subfile( ERROR_HTML, sl, 0 );
+	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
 
@@ -548,7 +548,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Please try later";
 	    sl[ SL_ERROR ].sl_data = "We were unable to contact the "
 		    "authentication server. Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -566,7 +566,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 
@@ -577,7 +577,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -586,7 +586,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -663,7 +663,7 @@ main( int argc, char *argv[] )
 		sl[ SL_TITLE ].sl_data = "Error: Make Service Cookie Failed";
 		sl[ SL_ERROR ].sl_data = "We were unable to create a service "
 		    "cookie. Please try again later.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 	    service = new_scookie;
@@ -675,7 +675,7 @@ main( int argc, char *argv[] )
 		    sl[ SL_TITLE ].sl_data = "Error: implode_factors Failed";
 		    sl[ SL_ERROR ].sl_data = "We were unable to create a service "
 			"factor list. Please try again later.";
-		    subfile( ERROR_HTML, sl, 0 );
+		    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		    exit( 0 );
 		}
 	    }
@@ -686,7 +686,7 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Register Failed";
 	    sl[ SL_ERROR ].sl_data = "We were unable to contact "
 		    "the authentication server.  Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -708,7 +708,7 @@ main( int argc, char *argv[] )
 		sl[ SL_TITLE ].sl_data = "Error: Please try later";
 		sl[ SL_ERROR ].sl_data = "We were unable to contact the "
 			"authentication server. Please try again later.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    } else if ( !rebasic ) {
 		goto loginscreen;
@@ -731,7 +731,7 @@ main( int argc, char *argv[] )
     if (( cgi = cgi_init()) == NULL ) {
         sl[ SL_TITLE ].sl_data = "Error: Server Error";
         sl[ SL_ERROR ].sl_data = "cgi_init failed";
-        subfile( ERROR_HTML, sl, 0 );
+        subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
         exit( 0 );
     }  
 
@@ -751,7 +751,7 @@ main( int argc, char *argv[] )
 	    if ( cl[ i ].cl_key == NULL ) {
 		sl[ SL_TITLE ].sl_data = "Error: Server Configuration";
 		sl[ SL_ERROR ].sl_data = "Too many form fields configured.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 	}
@@ -864,7 +864,7 @@ loggedin:
 			sl[ SL_ERROR ].sl_data = "We were unable to "
 			    "contact the authentication server. Please "
 			    "try again later.";
-			subfile( ERROR_HTML, sl, 0 );
+			subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 			exit( 0 );
 
 		 /* We deliberately ignore kSUBSTITUTED_FWD and kSATISFIED. */
@@ -940,7 +940,7 @@ loggedin:
 		sl[ SL_TITLE ].sl_data = "Error: Please try later";
 		sl[ SL_ERROR ].sl_data = "We were unable to contact the "
 			"authentication server. Please try again later.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 
@@ -969,7 +969,7 @@ loggedin:
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 
@@ -980,7 +980,7 @@ loggedin:
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -989,7 +989,7 @@ loggedin:
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 
@@ -1016,7 +1016,7 @@ loggedin:
 			    sl[ SL_ERROR ].sl_data = "We were unable to "
 				"contact the authentication server. Please "
 				"try again later.";
-			    subfile( ERROR_HTML, sl, 0 );
+			    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 			    exit( 0 );
 			}
 			goto outer2;
@@ -1045,7 +1045,7 @@ loggedin:
 		sl[ SL_TITLE ].sl_data = "Error: Make Service Cookie Failed";
 		sl[ SL_ERROR ].sl_data = "We were unable to create a service "
 		    "cookie. Please try again later.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	    }
 
@@ -1059,7 +1059,7 @@ loggedin:
 		sl[ SL_TITLE ].sl_data = "Error: Implode SCookie Factors Failed";
 		sl[ SL_ERROR ].sl_data = "We were unable to create a service "
 		    "factor list. Please try again later.";
-		subfile( ERROR_HTML, sl, 0 );
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
 	      }
 	    }
@@ -1071,7 +1071,7 @@ loggedin:
             sl[ SL_TITLE ].sl_data = "Error: Implicit Register Failed";
             sl[ SL_ERROR ].sl_data = "We were unable to contact the "
 		    "authentication server.  Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
             exit( 0 );
         }
     }
@@ -1108,7 +1108,7 @@ loginscreen:
 	if ( gettimeofday( &tv, NULL ) != 0 ) {
 	    sl[ SL_TITLE ].sl_data = "Error: Login Screen";
 	    sl[ SL_ERROR ].sl_data = "Please try again later.";
-	    subfile( ERROR_HTML, sl, 0 );
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
 	snprintf( new_cookie, sizeof( new_cookie ), "cosign=%s/%lu",
@@ -1168,6 +1168,6 @@ loginscreen:
 	}
     }
 
-    subfile( tmpl, sl, 1 );
+    subfile( tmpl, sl, SUBF_OPT_NOCACHE );
     exit( 0 );
 }
