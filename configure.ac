@@ -14,6 +14,7 @@ AC_CANONICAL_HOST
 
 # Checks for libraries.
 AC_CHECK_LIB([nsl], [inet_ntoa])
+AC_CHECK_LIB([resolv], [hstrerror])
 AC_CHECK_LIB([socket], [socket])
 
 AC_ARG_ENABLE(apache1, AC_HELP_STRING([--enable-apache1=path_to_apache1.3-apxs], [enable apache 1.3 filter] ), CHECK_APACHE_1, AC_MSG_RESULT( apache 1.3 not enabled))
