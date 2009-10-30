@@ -67,6 +67,7 @@ cosign_create_config( apr_pool_t *p )
     cfg->posterror = NULL;
     cfg->validref = NULL;
     cfg->validpreg = NULL;
+    cfg->validredir = -1;
     cfg->referr = NULL;
     cfg->port = 0;
     cfg->protect = -1;
@@ -180,10 +181,14 @@ cosign_handler( request_rec *r )
 {
     cosign_host_config	*cfg;
     ap_regmatch_t	matches[ 1 ];
+    apr_uri_t		uri;
+    apr_port_t		port;
+    apr_status_t	status;
     char		error[ 1024 ];
     const char		*qstr = NULL;
     const char		*pair, *key;
     const char		*dest = NULL;
+    const char		*hostname;
     char		*cookie, *full_cookie;
     char		*rekey = NULL;
     int			rc, cv;
@@ -216,11 +221,12 @@ cosign_handler( request_rec *r )
 	return( HTTP_SERVICE_UNAVAILABLE );
     }
 
-    if (( qstr = r->args ) == NULL ) {
+    if ( r->args == NULL ) {
 	cosign_log( APLOG_NOTICE, r->server,
 			"mod_cosign: no query string passed to handler." ); 
 	return( HTTP_FORBIDDEN );
     }
+    qstr = apr_pstrdup( r->pool, r->args );
 
     /* get cookie from query string */
     pair = ap_getword( r->pool, &qstr, '&' );
@@ -261,6 +267,44 @@ cosign_handler( request_rec *r )
 	cosign_log( APLOG_NOTICE, r->server,
 			"mod_cosign: cookie contains invalid characters" );
 	goto validation_failed;
+    }
+
+    if (( status = apr_uri_parse( r->pool, dest, &uri )) != APR_SUCCESS ) {
+	apr_strerror( status, error, sizeof( error ));
+	cosign_log( APLOG_ERR, r->server,
+		    "mod_cosign: apr_uri_parse %s: %s", dest, error );
+	return( HTTP_INTERNAL_SERVER_ERROR );
+    }
+    if ( uri.scheme == NULL || uri.hostname == NULL ) {
+	cosign_log( APLOG_ERR, r->server,
+		    "mod_cosign: bad destination URL: %s", dest );
+	return( HTTP_BAD_REQUEST );
+    }
+    if ( uri.port == 0 ) {
+	uri.port = apr_uri_port_of_scheme( uri.scheme );
+    }
+    hostname = ap_get_server_name( r );
+    port = ap_get_server_port( r );
+    if ( strcasecmp( hostname, uri.hostname ) != 0 || port != uri.port ) {
+	if ( cfg->validredir == 1 ) {
+	    if ( port != uri.port ) {
+		dest = apr_psprintf( r->pool, "%s://%s:%d%s?%s&%s",
+			    uri.scheme, uri.hostname, uri.port, r->uri,
+			    cookie, dest );
+	    } else {
+		dest = apr_psprintf( r->pool, "%s://%s%s?%s&%s",
+			    uri.scheme, uri.hostname, r->uri, cookie, dest );
+	    }
+	    apr_table_set( r->headers_out, "Location", dest );
+
+	    return( HTTP_MOVED_PERMANENTLY );
+	} else {
+	    cosign_log( APLOG_ERR, r->server,
+			"mod_cosign: current hostname \"%s\" does not match "
+			"service URL hostname \"%s\"", hostname, uri.hostname );
+
+	    return( HTTP_SERVICE_UNAVAILABLE );
+	}
     }
 
     cv = cosign_cookie_valid( cfg, cookie, &rekey, &si,
@@ -563,6 +607,9 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
 	cfg->validref = apr_pstrdup( pool, scfg->validref );
 	cfg->validpreg = scfg->validpreg;
     }
+    if ( cfg->validredir == -1 ) {
+	cfg->validredir = scfg->validredir;
+    }
     if ( cfg->referr == NULL ) {
 	cfg->referr = apr_pstrdup( pool, scfg->referr );
     }
@@ -671,6 +718,19 @@ set_cosign_valid_reference( cmd_parms *params, void *mconfig, const char *arg )
     }
 
     cfg->configured = 1;
+
+    return( NULL );
+}
+
+    static const char *
+set_cosign_allow_validation_redirect( cmd_parms *params,
+					void *mconfig, int flag )
+{
+    cosign_host_config		*cfg;
+
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
+
+    cfg->validredir = flag;
 
     return( NULL );
 }
@@ -1119,6 +1179,12 @@ static command_rec cosign_cmds[ ] =
 	AP_INIT_TAKE1( "CosignValidReference", set_cosign_valid_reference,
 	NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG,
 	"the regular expression matching valid redirect service URLs" ),
+
+	AP_INIT_FLAG( "CosignAllowValidationRedirect",
+	set_cosign_allow_validation_redirect, NULL, RSRC_CONF | ACCESS_CONF,
+	"allow redirection to different validation URL if "
+	"current vhost does not match service URL hostname AND "
+	"service URL matches CosignValidReference pattern" ),
 
 	AP_INIT_TAKE1( "CosignValidationErrorRedirect",
 	set_cosign_validation_error_redirect, NULL, RSRC_CONF | ACCESS_CONF | OR_AUTHCFG,
