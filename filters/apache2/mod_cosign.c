@@ -188,7 +188,7 @@ cosign_handler( request_rec *r )
     const char		*qstr = NULL;
     const char		*pair, *key;
     const char		*dest = NULL;
-    const char		*hostname;
+    const char		*hostname, *scheme;
     char		*cookie, *full_cookie;
     char		*rekey = NULL;
     int			rc, cv;
@@ -269,6 +269,14 @@ cosign_handler( request_rec *r )
 	goto validation_failed;
     }
 
+    /*
+     * if the current URL hostname doesn't match the hostname of the 
+     * service URL, we'll end up setting the cookie for the wrong domain.
+     * we catch that here and consider it an error unless the admin has
+     * CosignAllowValidationRedirect set to On, in which case we extract
+     * the hostname from the service URL and use it to build a validation
+     * URL for the correct host.
+     */
     if (( status = apr_uri_parse( r->pool, dest, &uri )) != APR_SUCCESS ) {
 	apr_strerror( status, error, sizeof( error ));
 	cosign_log( APLOG_ERR, r->server,
@@ -287,13 +295,18 @@ cosign_handler( request_rec *r )
     port = ap_get_server_port( r );
     if ( strcasecmp( hostname, uri.hostname ) != 0 || port != uri.port ) {
 	if ( cfg->validredir == 1 ) {
+	    /* always redirect to https unless CosignHttpOnly is enabled. */
+	    if ( cfg->http == 1 ) {
+		scheme = "http";
+	    } else {
+		scheme = "https";
+	    }
 	    if ( port != uri.port ) {
 		dest = apr_psprintf( r->pool, "%s://%s:%d%s?%s&%s",
-			    uri.scheme, uri.hostname, uri.port, r->uri,
-			    cookie, dest );
+			    scheme, uri.hostname, uri.port, r->unparsed_uri );
 	    } else {
-		dest = apr_psprintf( r->pool, "%s://%s%s?%s&%s",
-			    uri.scheme, uri.hostname, r->uri, cookie, dest );
+		dest = apr_psprintf( r->pool, "%s://%s%s",
+			    scheme, uri.hostname, r->unparsed_uri );
 	    }
 	    apr_table_set( r->headers_out, "Location", dest );
 
@@ -301,7 +314,8 @@ cosign_handler( request_rec *r )
 	} else {
 	    cosign_log( APLOG_ERR, r->server,
 			"mod_cosign: current hostname \"%s\" does not match "
-			"service URL hostname \"%s\"", hostname, uri.hostname );
+			"service URL hostname \"%s\", cannot set cookie for "
+			"correct domain.", hostname, uri.hostname );
 
 	    return( HTTP_SERVICE_UNAVAILABLE );
 	}
