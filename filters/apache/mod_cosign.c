@@ -172,10 +172,14 @@ cosign_handler( request_rec *r )
 {
     cosign_host_config	*cfg;
     ap_regmatch_t	matches[ 1 ];
+    uri_components	uri;
+    unsigned short	port;
+    int			status;
     char		error[ 1024 ];
     const char		*qstr = NULL;
     const char		*pair;
     const char		*dest = NULL;
+    const char		*hostname, *scheme;
     char		*cookie, *full_cookie;
     char		*rekey = NULL;
     int			rc, cv;
@@ -262,6 +266,56 @@ cosign_handler( request_rec *r )
 	cosign_log( APLOG_NOTICE, r->server,
 			"mod_cosign: cookie contains invalid characters" );
 	goto validation_failed;
+    }
+
+    /*
+     * if the current URL hostname doesn't match the hostname of the
+     * service URL, we'll end up setting the cookie for the wrong domain.
+     * we catch that here and consider it an error unless the admin has
+     * CosignAllowValidationRedirect set to On, in which case we extract
+     * the hostname from the service URL and use it to build a validation
+     * URL for the correct host.
+     */
+    if (( status = ap_parse_uri_components( r->pool, dest, &uri)) != HTTP_OK) {
+	cosign_log( APLOG_ERR, r->server,
+		    "mod_cosign: ap_parse_uri_components %s failed", dest );
+	return( HTTP_INTERNAL_SERVER_ERROR );
+    }
+    if ( uri.scheme == NULL || uri.hostname == NULL ) {
+	cosign_log( APLOG_ERR, r->server,
+		    "mod_cosign: bad destination URL: %s", dest );
+	return( HTTP_BAD_REQUEST );
+    }
+    if ( uri.port == 0 ) {
+	uri.port = ap_default_port_for_scheme( uri.scheme );
+    }
+    hostname = ap_get_server_name( r );
+    port = ap_get_server_port( r );
+    if ( strcasecmp( hostname, uri.hostname ) != 0 || port != uri.port ) {
+	if ( cfg->validredir == 1 ) {
+	    if ( cfg->http ==  1 ) {
+		scheme = "http";
+	    } else {
+		scheme = "https";
+	    }
+	    if ( port != uri.port ) {
+		dest = ap_psprintf( r->pool, "%s://%s:%d%s",
+			    scheme, uri.hostname, uri.port, r->unparsed_uri );
+	    } else {
+		dest = ap_psprintf( r->pool, "%s://%s%s",
+			    scheme, uri.hostname, r->unparsed_uri );
+	    }
+	    ap_table_set( r->headers_out, "Location", dest );
+
+	    return( HTTP_MOVED_PERMANENTLY );
+	} else {
+	    cosign_log( APLOG_ERR, r->server,
+			"mod_cosign: current hostname \"%s\" does not match "
+			"service URL hostname \"%s\", cannot set cookie for "
+			"correct domain.", hostname, uri.hostname );
+
+	    return( HTTP_SERVICE_UNAVAILABLE );
+	}
     }
 
     cv = cosign_cookie_valid( cfg, cookie, &rekey, &si,
