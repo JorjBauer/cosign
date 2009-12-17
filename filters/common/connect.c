@@ -529,10 +529,8 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     struct connlist	**cur, *tmp;
     int			rc = COSIGN_ERROR, retry = 0;
 
-    if ( cfg->cl != NULL ) {
-	connlist_destroy( &cfg->cl, s );
-    }
     if ( connlist_create( &cfg->cl, cfg->host, cfg->port, s ) != 0 ) {
+	cfg->cl = NULL;
 	cosign_log( APLOG_ERR, s, "cosign_check_cookie: "
 		    "connlist_create: rebuild for %s failed", cfg->host );
 	return( COSIGN_ERROR );
@@ -568,6 +566,7 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
 	    break;
 	}
     }
+    connlist_destroy( &cfg->cl, s );
 
     if ( retry ) {
 	return( COSIGN_RETRY );
@@ -575,6 +574,7 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     return( COSIGN_ERROR );
 
 done:
+    connlist_destroy( &cfg->cl, s );
     if ( rekey && *rekey ) {
 	/* use the rekeyed cookie to request tickets and proxy cookies */
 	scookie = *rekey;
