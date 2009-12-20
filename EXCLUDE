@@ -9,3 +9,4 @@ NOTES
 ./configure
 ./.git
 autom4te.cache
+./UPENN_*
