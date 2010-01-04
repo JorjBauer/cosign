@@ -242,6 +242,8 @@ cookiedb_mysql_destroy( )
     int
 cookiedb_mysql_init( char *prefix, int hashlen )
 {
+  my_bool		reconnect = 1;
+
   l_sql = mysql_init(NULL);
   if ( !l_sql) {
     syslog( LOG_ERR, "unable to mysql_init"  );
@@ -261,6 +263,16 @@ cookiedb_mysql_init( char *prefix, int hashlen )
     }
   }
 
+  /*
+   * try reconnecting if the server goes away.
+   *
+   * we set MYSQL_OPT_RECONNECT twice, once before and once after we call
+   * mysql_real_connect due to inconsistencies across revisions of the
+   * mysql client libraries. See:
+   *
+   * http://dev.mysql.com/doc/refman/5.1/en/mysql-options.html
+   */
+  mysql_options( l_sql, MYSQL_OPT_RECONNECT, &reconnect );
   if (! (l_sock = mysql_real_connect( l_sql,
 				      mysql_server,
 				      mysql_user,
@@ -273,6 +285,7 @@ cookiedb_mysql_init( char *prefix, int hashlen )
     syslog( LOG_ERR, "Unable to connect to database server" );
     return ( -1 );
   }
+  mysql_options( l_sql, MYSQL_OPT_RECONNECT, &reconnect );
   l_initialized = 1;
   return( 0 );
 }
