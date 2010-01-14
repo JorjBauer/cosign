@@ -119,7 +119,7 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 	cmd = "REKEY";
     }
     if ( snet_writef( sn, "%s %s %s\r\n", cmd, scookie,
-		( imploded_factors[ 0 ] ? imploded_factors : "" ) < 0 ) {
+		( imploded_factors[ 0 ] ? imploded_factors : "" )) < 0 ) {
 	cosign_log( APLOG_ERR, s, "mod_cosign: netcheck_cookie: "
 		    "snet_writef %s failed", cmd );
 	return( COSIGN_ERROR );

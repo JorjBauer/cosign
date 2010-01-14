@@ -917,16 +917,6 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
 	if ( COSIGN_PROTO_SUPPORTS_REKEY( protocol )) {
 	    if ( strcasecmp( av[ 0 ], "REKEY" ) == 0 ) {
-
-		/* save service cookie path for rekeying below. */
-		if ( strlen( path ) >= sizeof( scpath )) {
-		    syslog( LOG_ERR, "f_check: %s exceeds bounds.", path );
-		    snet_writef( sn, "%d %s: Invalid cookie name.\r\n",
-				 531, av[ 0 ]);
-		    return( 1 );
-		}
-		strcpy( scpath, path );
-
 		status = 233;
 	    }
 	}
@@ -1124,7 +1114,6 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     } else {
 	/* if there is more than one realm, we just give the first */
 	if (( p = strtok( allowed_factors, " " )) != NULL ) {
-		status, ci.ci_ipaddr_cur, ci.ci_user, ci.ci_realm,
 	    snet_writef( sn, "%d %s %s %s\r\n",
 		    status, ci.ci_ipaddr, ci.ci_user, p );
 	} else {
