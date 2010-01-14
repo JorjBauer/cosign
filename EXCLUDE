@@ -5,8 +5,8 @@ config.log
 config.status
 EXCLUDE
 NOTES
-./configure.ac
-./configure
-./.git
+/configure.ac
+/configure
+/.git
 autom4te.cache
 ./UPENN_*

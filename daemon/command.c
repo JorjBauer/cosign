@@ -33,6 +33,7 @@
 #include "command.h"
 #include "conf.h"
 #include "mkcookie.h"
+#include "cosignproto.h"
 #include "rate.h"
 #include "argcargv.h"
 #include "wildcard.h"
@@ -83,6 +84,7 @@ struct command	unauth_commands[] = {
     { "LOGOUT",		f_notauth },
     { "REGISTER",	f_notauth },
     { "CHECK",		f_notauth },
+    { "REKEY",		f_notauth },
     { "RETR",		f_notauth },
     { "TIME",		f_notauth },
     { "DAEMON",		f_notauth },
@@ -97,6 +99,7 @@ struct command	auth_commands[] = {
     { "LOGOUT",		f_logout },
     { "REGISTER",	f_register },
     { "CHECK",		f_check },
+    { "REKEY",		f_check },
     { "RETR",		f_retr },
     { "TIME",		f_time },
     { "DAEMON",		f_daemon },
@@ -111,9 +114,10 @@ struct rate	checkpass = { 0 };
 struct rate	checkfail = { 0 };
 struct rate	checkunknown = { 0 };
 
-char	*remote_cn = NULL;
-int	replicated = 0; /* we are not talking to ourselves */
-int	protocol = 0; 
+char		*remote_cn = NULL;
+int		replicated = 0; /* we are not talking to ourselves */
+int		protocol = COSIGN_PROTO_V0; 
+unsigned int	client_capa = 0;
 int	ncommands = sizeof( unauth_commands ) / sizeof(unauth_commands[ 0 ] );
 
 extern struct cfs_funcs *cookiefs;
@@ -183,25 +187,38 @@ f_notauth( SNET *sn, int ac, char *av[], SNET *pushersn )
     return( 0 );
 }
 
+/* banner sent to client on connection & after successful TLS negotiation */
+    static void
+banner( SNET *sn )
+{
+    snet_writef( sn, "220 2 Collaborative Web Single Sign-On "
+		"[COSIGNv%d FACTORS=%d REKEY]\r\n",
+		COSIGN_PROTO_CURRENT, COSIGN_MAXFACTORS );
+}
+
     int
 f_starttls( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
-
     int				rc;
     X509			*peer;
     char			buf[ 1024 ];
 
-    if (( ac != 1 ) && ( ac != 2 )) {
-	snet_writef( sn, "%d Syntax error\r\n", 501 );
-	return( 1 );
-    }
+    /* STARTTLS with no additional parameters is assumed to be protocol 0 */
+    if ( ac >= 2 ) {
+	errno = 0;
+	protocol = strtol( av[ 1 ], (char **)NULL, 10 );
+	if ( !COSIGN_PROTO_MIN_REQUIRED( protocol, COSIGN_PROTO_V2) || errno ) {
+	    if ( errno ) {
+		syslog( LOG_ERR, "f_starttls: protocol: strtol %s: %s",
+			av[ 1 ], strerror( errno ));
+	    }
+	    snet_writef( sn, "%d Protocol version %s unrecognized\r\n",
+			 502, av[ 1 ] );
 
-    if ( ac == 2 ) {
-	if (( atoi( av[ 1 ] )) != 2 ) {
-	    snet_writef( sn, "%d Unknown version number\r\n", 502 );
+	    protocol = COSIGN_PROTO_V0;
+
 	    return( 1 );
 	}
-	protocol = 2;
     }
 
     snet_writef( sn, "%d Ready to start TLS\r\n", 220 );
@@ -241,8 +258,8 @@ f_starttls( SNET *sn, int ac, char *av[], SNET *pushersn )
 
     commands = auth_commands;
     ncommands = sizeof( auth_commands ) / sizeof( auth_commands[ 0 ] );
-    if ( protocol == 2 ) {
-	snet_writef( sn, "%d TLS successfully started.\r\n", 221 );
+    if ( COSIGN_PROTO_MIN_REQUIRED( protocol, COSIGN_PROTO_V2 )) {
+	banner( sn );
     }
     return( 0 );
 }
@@ -834,7 +851,6 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     char		rekeybuf[ 128 ], rcookie[ 256 ];
     char		*p;
     int			status, i;
-    int			rekey = 0;
     double		rate;
     struct idlelist	*il;
     int			did_il;
@@ -858,10 +874,15 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
      * S: 232 ip principal realm
      */
 
+    /*
+     * C: REKEY servicecookie
+     * S: 233 ip principal realm rekeyed-cookie
+     */
+
     if (( al->al_key != CGI ) && ( al->al_key != SERVICE )) {
 	syslog( LOG_ERR, "f_check: %s not allowed", al->al_hostname );
-	snet_writef( sn, "%d CHECK: %s not allowed to check.\r\n",
-		430, al->al_hostname );
+	snet_writef( sn, "%d %s: %s not allowed to check.\r\n",
+		430, av[ 0 ], al->al_hostname );
 	return( 1 );
     }
 
@@ -872,7 +893,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
     if ( ac == 3 || ac == 4 ) {
 	if ( protocol >= 2 && strcmp( av[ ac - 1 ], "rekey" ) == 0 ) {
-	    rekey = 1;
+	    status = 233;
 	}
 	/* need some way to be sure the extra argument is a factorlist. */
     }
@@ -881,7 +902,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 
     if ( strncmp( av[ 1 ], "cosign-", 7 ) == 0 ) {
 	if ( strict_checks && service_valid( av[ 1 ] ) == NULL ) {
-	    snet_writef( sn, "%d CHECK: Invalid cookie\r\n", 534 );
+	    snet_writef( sn, "%d %s: Invalid cookie\r\n", 534, av[ 0 ] );
 	    return( 1 );
 	}
 
@@ -891,8 +912,23 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 		syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 			inet_ntoa( cosign_sin.sin_addr), rate );
 	    }
-	    snet_writef( sn, "%d CHECK: cookie not in db!\r\n", 533 );
+	    snet_writef( sn, "%d %s: cookie not in db!\r\n", 533, av[ 0 ] );
 	    return( 1 );
+	}
+	if ( COSIGN_PROTO_SUPPORTS_REKEY( protocol )) {
+	    if ( strcasecmp( av[ 0 ], "REKEY" ) == 0 ) {
+
+		/* save service cookie path for rekeying below. */
+		if ( strlen( path ) >= sizeof( scpath )) {
+		    syslog( LOG_ERR, "f_check: %s exceeds bounds.", path );
+		    snet_writef( sn, "%d %s: Invalid cookie name.\r\n",
+				 531, av[ 0 ]);
+		    return( 1 );
+		}
+		strcpy( scpath, path );
+
+		status = 233;
+	    }
 	}
 	strncpy( lookup, login, sizeof( lookup ) );
     } else if ( strncmp( av[ 1 ], "cosign=", 7 ) == 0 ) {
@@ -905,7 +941,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	status = 232;
     } else {
 	syslog( LOG_ERR, "f_check: unknown cookie prefix." );
-	snet_writef( sn, "%d CHECK: unknown cookie prefix!\r\n", 432 );
+	snet_writef( sn, "%d %s: unknown cookie prefix!\r\n", 432, av[ 0 ] );
 	return( 1 );
     }
 
@@ -915,7 +951,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    syslog( LOG_NOTICE, "STATS CHECK %s: UNKNOWN %.5f / sec",
 		    inet_ntoa( cosign_sin.sin_addr), rate);
 	}
-	snet_writef( sn, "%d CHECK: Who me? Dunno.\r\n", 534 );
+	snet_writef( sn, "%d %s: Who me? Dunno.\r\n", 534, av[ 0 ] );
 	return( 1 );
     }
 
@@ -924,7 +960,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    syslog( LOG_NOTICE, "STATS CHECK %s: FAIL %.5f / sec",
 		    inet_ntoa( cosign_sin.sin_addr), rate);
 	}
-	snet_writef( sn, "%d CHECK: Already logged out\r\n", 430 );
+	snet_writef( sn, "%d %s: Already logged out\r\n", 430, av[ 0 ] );
 	return( 1 );
     }
 
@@ -941,14 +977,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 			inet_ntoa( cosign_sin.sin_addr ), rate );
 	    }
 	    syslog( LOG_NOTICE, "f_check: idle grey window" );
-	    snet_writef( sn, "%d CHECK: Idle Grey Window\r\n", 531 );
+	    snet_writef( sn, "%d %s: Idle Grey Window\r\n", 531, av[ 0 ] );
 	    return( 1 );
 	}
 	if (( rate = rate_tick( &checkfail )) != 0.0 ) {
 	    syslog( LOG_NOTICE, "STATS CHECK %s: FAIL %.5f / sec",
 		    inet_ntoa( cosign_sin.sin_addr), rate);
 	}
-	snet_writef( sn, "%d CHECK: Idle logged out\r\n", 431 );
+	snet_writef( sn, "%d %s: Idle logged out\r\n", 431, av[ 0 ] );
 	if ( cookiefs->f_logout( lookup ) < 0 ) {
 	    syslog( LOG_ERR, "f_check: %s: %m", lookup );
 	    return( -1 );
@@ -1049,17 +1085,17 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
       }
     }
 
-    if ( status == 231 && rekey ) {
+    if ( status == 233 ) {
 	/* rekey service cookie. */
 
 	if ( mkcookie( sizeof( rekeybuf ), rekeybuf ) != 0 ) {
 	    syslog( LOG_ERR, "f_check: rekey: mkcookie failed" );
-	    snet_writef( sn, "%d CHECK: rekey failed.\r\n", 536 );
+	    snet_writef( sn, "%d %s: rekey failed.\r\n", 536, av[ 0 ] );
 	    return( 1 );
 	}
 	if (( p = strchr( av[ 1 ], '=' )) == NULL ) {
 	    syslog( LOG_ERR, "f_check: rekey: bad service name \"%s\".", av[1]);
-	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
+	    snet_writef( sn, "%d %s rekey failed.\r\n", 536, av[ 0 ] );
 	    return( 1 );
 	}
 	*p = '\0';
@@ -1069,7 +1105,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	if ( snprintf( rcookie, sizeof( rcookie ), "%s=%s", av[ 1 ], rekeybuf )
 		>= sizeof( rcookie )) {
 	    syslog( LOG_ERR, "f_check: rekey: new cookie too long." );
-	    snet_writef( sn, "%d CHECK rekey failed.\r\n", 536 );
+	    snet_writef( sn, "%d %s rekey failed.\r\n", 536, av[ 0 ] );
 	    return( 1 );
 	}
 	*p = '=';
@@ -1081,13 +1117,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
     }
 
-    if ( protocol >= 2 ) {
+    if ( COSIGN_PROTO_SUPPORTS_FACTORS( protocol )) {
 	snet_writef( sn, "%d %s %s %s %s\r\n",
 		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
-		( rekey ? rcookie : "" ));
+		( status == 233 ? rcookie : "" ));
     } else {
 	/* if there is more than one realm, we just give the first */
 	if (( p = strtok( allowed_factors, " " )) != NULL ) {
+		status, ci.ci_ipaddr_cur, ci.ci_user, ci.ci_realm,
 	    snet_writef( sn, "%d %s %s %s\r\n",
 		    status, ci.ci_ipaddr, ci.ci_user, p );
 	} else {
@@ -1328,10 +1365,17 @@ command( int fd, SNET *pushersn )
 	}
     }
 
-    snet_writef( snet, "%d 2 Collaborative Web Single Sign-On\r\n", 220 );
+    /*
+     * because of problems with legacy client protocol checks, we return a
+     * list of capabilities on the same line as the banner. a multi-line
+     * banner would be more in the SMTP-like vernacular, but the IIS & Java
+     * legacy clients don't handle multi-line banner output gracefully.
+     * 
+     * 220 2 Collaborative Web Single Sign-On [ CAPA1 CAPA2 ... ]\r\n
+     */
+    banner( snet );
 
     tv = cosign_net_timeout;
-
     while (( line = snet_getline( snet, &tv )) != NULL ) {
 	/* log everything we get to stdout if we're debugging */
 	tv = cosign_net_timeout;
