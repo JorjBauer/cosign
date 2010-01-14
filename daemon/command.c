@@ -891,12 +891,6 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	snet_writef( sn, "%d CHECK: Wrong number of args.\r\n", 530 );
 	return( 1 );
     }
-    if ( ac == 3 || ac == 4 ) {
-	if ( protocol >= 2 && strcmp( av[ ac - 1 ], "rekey" ) == 0 ) {
-	    status = 233;
-	}
-	/* need some way to be sure the extra argument is a factorlist. */
-    }
 
     strncpy( lookup, av[ 1 ], sizeof( lookup ) );
 
@@ -919,6 +913,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    if ( strcasecmp( av[ 0 ], "REKEY" ) == 0 ) {
 		status = 233;
 	    }
+	}
+
+	/* early implementations of REKEY were "CHECK <cookie> rekey" */
+	if ( ac == 3 || ac == 4 ) {
+	    if ( protocol >= 2 && strcmp( av[ ac - 1 ], "rekey" ) == 0 ) {
+		status = 233;
+	    }
+	    /* need some way to be sure the extra argument is a factorlist. */
 	}
 	strncpy( lookup, login, sizeof( lookup ) );
     } else if ( strncmp( av[ 1 ], "cosign=", 7 ) == 0 ) {
