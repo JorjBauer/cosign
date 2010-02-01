@@ -323,7 +323,7 @@ main( int argc, char *argv[] )
     CGIHANDLE			*cgi;
     char                        imploded_factors[ 1024 ];
     char			*subst_factor = NULL;
-    int				req_more_auth;
+    int				req_more_auth = 0;
 
     if ( argc == 2 ) {
 	if ( strcmp( argv[ 1 ], "-V" ) == 0 ) {
