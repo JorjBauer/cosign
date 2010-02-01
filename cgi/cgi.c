@@ -1144,6 +1144,10 @@ loginscreen:
 	}
 	}
 
+	if ( req_more_auth ) {
+	    scookie->sl_flag |= SL_REAUTH;
+	}
+
 	if (( scookie != NULL ) && ( scookie->sl_flag & SL_REAUTH )) {
 	    sl[ SL_DFACTOR ].sl_data = NULL;
 	    sl[ SL_RFACTOR ].sl_data = smash( scookie->sl_factors );
