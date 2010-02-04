@@ -323,7 +323,7 @@ main( int argc, char *argv[] )
     CGIHANDLE			*cgi;
     char                        imploded_factors[ 1024 ];
     char			*subst_factor = NULL;
-    int				req_more_auth;
+    int				req_more_auth = 0;
 
     if ( argc == 2 ) {
 	if ( strcmp( argv[ 1 ], "-V" ) == 0 ) {
@@ -1138,10 +1138,14 @@ loginscreen:
 		scookie = service_find( service, matches, nmatch );
 	    } else {
 		/* legacy cosign scheme */
-	    *p = '\0';
+		*p = '\0';
 		scookie = service_find( service, matches, nmatch );
-	    *p = '=';
+		*p = '=';
+	    }
 	}
+
+	if ( req_more_auth ) {
+	    scookie->sl_flag |= SL_REAUTH;
 	}
 
 	if (( scookie != NULL ) && ( scookie->sl_flag & SL_REAUTH )) {
