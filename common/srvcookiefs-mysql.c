@@ -936,7 +936,6 @@ cookiedb_mysql_taste_cookies( void *head, struct timeval *now )
     while (( fr = mysql_stmt_fetch( q )) == 0 ) {
 	rows++;
 
-fprintf( stderr, "TASTE: %s %ld %ld\n", cookie, itime, ( state - 1 ));
 	for ( yacur = (struct connlist *)head; yacur != NULL;
 		yacur = yacur->cl_next ) {
 	    if ( itime > yacur->cl_last_time && yacur->cl_sn != NULL ) {
