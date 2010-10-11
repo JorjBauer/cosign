@@ -66,7 +66,7 @@ read_scookie( char *path, struct sinfo *si, void *s )
 	    si->si_protocol = strtol( p, (char **)NULL, 10 );
 	    if ( errno ) {
 		cosign_log( APLOG_NOTICE, s, "mod_cosign: read_scookie: "
-			    "invalid protocol version %s, ",
+			    "invalid protocol version %s, "
 			    "falling back to protocol v0.", p );
 		si->si_protocol = 0;
 	    }

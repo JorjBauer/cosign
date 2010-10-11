@@ -21,6 +21,7 @@ struct cfs_funcs {
   int (*f_write) ( char[255], struct cinfo * );
   int (*f_register) (char[255], char[255], char *[], int );
   int (*f_service_to_login) ( char[255], char[255] );
+  int (*f_taste_cookies)( void *, struct timeval *now );
   int (*f_delete) ( char[255] );
   int (*f_eat) ( char[255], struct timeval *, time_t *, int *, int, int, int );
   int (*f_touch) ( char[255] );

@@ -1,6 +1,10 @@
+#include "config.h"
+
 #include <sys/param.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/time.h>
+#include <netinet/in.h>
 #include <time.h>
 #include <string.h>
 #include <stdio.h>
@@ -10,6 +14,7 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <netdb.h>
 #include <utime.h>
 #include <assert.h>
 
@@ -19,13 +24,33 @@
 
 #include "fbase64.h"
 #include "mkcookie.h"
-#include "srvcookiefs.h"
+#include "rate.h"
 
 /* These three for COSIGN_MAXFACTORS. Shame we have to include openssl
    for that! */
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include "config.h"
+
+#include <snet.h>
+
+#include "srvcookiefs.h"
+
+/* grabbed from monster.h. including monster.h is...problematic. */
+struct connlist {
+    struct sockaddr_in  cl_sin;
+    SNET                *cl_sn;
+    SNET                *cl_psn;
+    struct connlist     *cl_next;
+    union {
+        time_t          cu_last_time;
+#define cl_last_time    cl_u.cu_last_time
+        pid_t           cu_pid;
+#define cl_pid          cl_u.cu_pid
+    } cl_u;
+    struct rate         cl_pushpass;
+    struct rate         cl_pushfail;
+};
+
 
 static int l_initialized = 0;
 static MYSQL *l_sql = NULL;
@@ -42,13 +67,13 @@ extern int                     mysql_usessl;
 extern int                     mysql_portnum;
 
 #define BIND_LONG(x, y ) {                      \
-    x.buffer_type = MYSQL_TYPE_LONG;		\
-    x.buffer = (char *)&y; }
-#define BIND_STRING(x, y, y_sz, z) {   \
-    assert( y_sz != 4 );               \
-    x.buffer_type = MYSQL_TYPE_STRING; \
-    x.buffer = (char *)y;              \
-    x.buffer_length = y_sz;            \
+    (x).buffer_type = MYSQL_TYPE_LONG;		\
+    (x).buffer = (char *)&(y); }
+#define BIND_STRING(x, y, y_sz, z) {     \
+    assert((y_sz) != 4 );                \
+    (x).buffer_type = MYSQL_TYPE_STRING; \
+    (x).buffer = (char *)y;              \
+    (x).buffer_length = y_sz;            \
     x.length = &z; }
 
 /* These should really be in the outer project. */
@@ -67,6 +92,7 @@ int cookiedb_mysql_write_login( char[255], struct cinfo * );
 int cookiedb_mysql_register( char[255], char[255], char *[], int );
 int cookiedb_mysql_service_to_login( char[255], char[255] );
 int cookiedb_mysql_delete( char[255] );
+int cookiedb_mysql_taste_cookies( void *head, struct timeval *now );
 int cookiedb_mysql_eat_cookie( char[255], struct timeval *, time_t *, int *, int, int, int );
 int cookiedb_mysql_touch( char[255] );
 int cookiedb_mysql_touch_factor( char *, char[256], int );
@@ -82,6 +108,7 @@ struct cfs_funcs mysql_cfs = { cookiedb_mysql_init,
 			       cookiedb_mysql_write_login,
 			       cookiedb_mysql_register,
 			       cookiedb_mysql_service_to_login,
+			       cookiedb_mysql_taste_cookies,
 			       cookiedb_mysql_delete,
 			       cookiedb_mysql_eat_cookie,
 			       cookiedb_mysql_touch,
@@ -464,7 +491,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
   const char *read_factor_template = "SELECT factor "
       "FROM factor_timeouts "
       "WHERE login_cookie=?";
-  int sz, left, fr;
+  int sz, left, fr, rows;
   char *p;
   MYSQL_STMT *q = NULL;
   MYSQL_BIND bind[ 1 ];
@@ -563,10 +590,12 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
       goto error;
   }
 
+  rows = 0; 
   ci->ci_realm[ 0 ] = '\0';
   left = sizeof( ci->ci_realm );
   p = ci->ci_realm;
   while (( fr = mysql_stmt_fetch( q )) == 0 ) {
+      rows++;
       if ( left <= strlen( a_factor ) + 1 ) { /* +1 for space; <= for NUL */
 	  syslog( LOG_ERR, 
 		  "cookiedb_mysql_read: insufficient buffer space for factor list" );
@@ -584,6 +613,11 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
 	  syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_fetch failed: "
 			   "%s\n", mysql_stmt_error( q ));
       }
+      goto error;
+  }
+  if ( rows == 0 ) {
+      syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_fetch: no matching "
+		       "rows for read_factor query\n" );
       goto error;
   }
 
@@ -845,6 +879,121 @@ cookiedb_mysql_service_to_login( char cookie[255], char login[255] )
     mysql_stmt_close( q );
   }
   return( -1 );
+}
+
+    int
+cookiedb_mysql_taste_cookies( void *head, struct timeval *now )
+{
+    /*
+     * query ci_state in a numeric context to get back the index of
+     * the ENUM column value, so we can avoid dealing with strings.
+     *
+     * ENUM column 1: 'logged out'
+     * ENUM column 2: 'active'
+     */
+    const char		*template = "SELECT login_cookie, ci_itime, "
+					"ci_state + 0 "
+					"FROM login_cookies "
+					"WHERE ci_itime > ? "
+					"LIMIT 100000";
+    MYSQL_STMT		*q = NULL;
+    MYSQL_BIND		bind[ 1 ];
+    MYSQL_BIND		result[ 3 ];
+    char		cookie[ 255 ];
+    unsigned long	itime_limit = now->tv_sec + 86400;
+    unsigned long	itime = 0;
+    unsigned long	state = 0;
+    unsigned long	cookie_len = 0;
+    int			fr, rows;
+    int			login_sent = 0;
+    struct connlist	*yacur;
+
+    /* set WHERE value to min of 43200 (hard session timeout at upenn)
+    and max connection list's last itime. */
+    for ( yacur = (struct connlist *)head; yacur != NULL;
+		yacur = yacur->cl_next ) {
+	if ( yacur->cl_last_time < itime_limit ) {
+	    itime_limit = yacur->cl_last_time;
+	}
+    }
+    if ( itime_limit == 0 || itime_limit == ( now->tv_sec + 86400 )) {
+	/* default to grabbing login cookies from the last 12 hours */
+	itime_limit = now->tv_sec - 43200;
+    }
+
+    memset( bind, 0, sizeof( bind ));
+    BIND_LONG( bind[ 0 ], itime_limit );
+
+    if (( q = prepare( template, bind, 1 )) == NULL ) {
+	syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+			 "failed to prepare query." );
+	goto error_bad_taste;
+    }
+    if ( mysql_stmt_execute( q ) != 0 ) {
+	syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+			 "mysql_stmt_execute: %s", mysql_stmt_error( q ));
+	goto error_bad_taste;
+    }
+
+    memset( result, 0, sizeof( result ));
+    BIND_STRING( result[ 0 ], cookie, sizeof( cookie ), cookie_len );
+    BIND_LONG( result[ 1 ], itime );
+    BIND_LONG( result[ 2 ], state );
+    if ( mysql_stmt_bind_result( q, result ) != 0 ) {
+	syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+			 "mysql_stmt_bind_result: %s", mysql_stmt_error( q ));
+	goto error_bad_taste;
+    }
+
+    rows = 0;
+    while (( fr = mysql_stmt_fetch( q )) == 0 ) {
+	rows++;
+
+	for ( yacur = (struct connlist *)head; yacur != NULL;
+		yacur = yacur->cl_next ) {
+	    if ( itime > yacur->cl_last_time && yacur->cl_sn != NULL ) {
+		login_sent++;
+		/* state is returned as ENUM column #, beginning at index 1 */
+		state = ( state > 0 ? state - 1 : -1 );
+		if ( snet_writef( yacur->cl_sn, "%s %d %d\r\n",
+				  cookie, itime, state ) < 0 ) {
+		    syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+				     "snet_writef failed" );
+		    (void)snet_close( yacur->cl_sn );
+		    yacur->cl_sn = NULL;
+		    continue;
+		}
+	    }
+	}
+    }
+    if ( fr != MYSQL_NO_DATA ) {
+	if ( fr == MYSQL_DATA_TRUNCATED ) {
+	    syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+			     "mysql_stmt_fetch returned truncated data." );
+	} else {
+	    syslog( LOG_ERR, "cookiedb_mysql_taste_cookies: "
+			     "mysql_stmt_fetch failed: %s.",
+			     mysql_stmt_error( q ));
+	}
+
+	goto error_bad_taste;
+    }
+
+    /* emulate public monster logging in public cosign source */
+    syslog( LOG_NOTICE, "STATS MONSTER: 0/%d/%d login 0/0 service",
+			login_sent, rows );
+
+    if ( q != NULL ) {
+	mysql_stmt_close( q );
+    }
+    return( 0 );
+
+error_bad_taste:
+    if ( q != NULL ) {
+	mysql_stmt_close( q );
+    }
+
+    return( -1 );
 }
 
     int

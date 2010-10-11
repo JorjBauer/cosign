@@ -409,6 +409,15 @@ next:
 	cur = &(*cur)->cl_next;
     }
 
+    if ( cookiefs->f_init( NULL, hashlen ) != 0 ) {
+	syslog( LOG_ERR, "cookiefs_init error" );
+	continue;
+    }
+
+    cookiefs->f_taste_cookies( head, &now );
+    cookiefs->f_destroy();
+
+#ifdef notdef
     switch ( hashlen ) {
     case 0 :
 	do_dir( ".", head, &now );
@@ -437,6 +446,7 @@ next:
 	syslog( LOG_ERR, "Illegal hashlen %d", hashlen );
 	exit( 1 );
     }
+#endif /* notdef */
 
     for ( yacur = head; yacur != NULL; yacur = yacur->cl_next ) {
 	if ( yacur->cl_sn != NULL ) {
@@ -464,8 +474,10 @@ next:
 	}
 
     }
+#ifdef notdef
     syslog( LOG_NOTICE, "STATS MONSTER: %d/%d/%d login %d/%d service",
 	    login_gone, login_sent, login_total, service_gone, service_total );
+#endif /* notdef */
 	} /* end forever loop */
 }
 
@@ -483,11 +495,6 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
     if (( dirp = opendir( dir )) == NULL ) {
 	syslog( LOG_ERR, "%s: %m", cosign_dir);
 	exit( 1 );
-    }
-
-    if ( !cookiefs->f_init( NULL, hashlen ) ) {
-      syslog( LOG_ERR, "do_dir: cookiefs_init error" );
-      return;
     }
 
     while (( de = readdir( dirp )) != NULL ) {
@@ -536,5 +543,4 @@ do_dir( char *dir, struct connlist *head, struct timeval *now )
 	}
     }
     closedir( dirp );
-    cookiefs->f_destroy();
 }

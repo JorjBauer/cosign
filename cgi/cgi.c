@@ -241,6 +241,88 @@ smash( char *av[] )
     return( smashtext );
 }
 
+/*
+ * append a factor to an argv.
+ *
+ * factorv is expected to be the sl_factors field from the service's
+ * servicelist entry. this field is always allocated with space for
+ * COSIGN_MAXFACTORS elements, and the 0th element is initialized to NULL.
+ *
+ * return values:
+ * -1: error
+ *  0: factor already in list.
+ *  1: factor appended
+ */
+    static int
+factor_push( char **factorv, char *newfactor )
+{
+    int		i;
+
+    for ( i = 0; factorv[ i ] != NULL; i++ ) {
+	/* check if newfactor's already in factorv */
+	if ( strcmp( factorv[ i ], newfactor ) == 0 ) {
+	    return( 0 );
+	}
+    }
+
+    /* need element at index COSIGN_MAXFACTORS - 1 to store terminating NULL */
+    if ( i >= COSIGN_MAXFACTORS - 1 ) {
+	fprintf( stderr, "factor_push: too many factors\n" );
+	return( -1 );
+    }
+    if (( factorv[ i ] = strdup( newfactor )) == NULL ) {
+	perror( "factor_push: strdup" );
+	return( -1 );
+    }
+    factorv[ i + 1 ] = NULL;
+
+    return( 1 );
+}
+
+/*
+ * parse a comma-separated list of required factors, appending factors
+ * to the service's required factor argv if they match the dependent
+ * suffix. if a dependent factor's found, both it and its parent factor
+ * are appended to the factor argv, and SL_REAUTH is set.
+ */
+    static int
+factor_set_dependencies( struct servicelist *svc, char *reqlist,
+	char *depsuffix )
+{
+    char	*require, *rf, *sfx;
+    char	*last = NULL;
+    int		rc = -1;
+
+    if (( require = strdup( reqlist )) == NULL ) {
+	perror( "factor_set_dependencies: strdup" );
+	return( -1 );
+    }
+    for ( rf = strtok_r( require, ",", &last ); rf != NULL;
+		rf = strtok_r( NULL, ",", &last )) {
+	if (( sfx = strstr( rf, depsuffix )) != NULL ) {
+	    /*
+	     * this is a dependent factor. append it & its parent to
+	     * sl_factors and set SL_REAUTH for the service.
+	     */
+	    *sfx = '\0';
+	    if ( factor_push( svc->sl_factors, rf ) == -1 ) {
+		goto cleanup;
+	    }
+	    *sfx = *depsuffix;
+	    if ( factor_push( svc->sl_factors, rf ) == -1 ) {
+		goto cleanup;
+	    }
+	    svc->sl_flag |= SL_REAUTH;
+	}
+    }
+    rc = 0;
+
+cleanup:
+    free( require );
+
+    return( rc );
+}
+
     static int
 match_factor( char *required, char *satisfied, char *suffix )
 {
@@ -590,17 +672,15 @@ main( int argc, char *argv[] )
 	    exit( 0 );
 	}
 
-	if ( !rebasic ) {
-	    if ( scookie->sl_flag & SL_REAUTH ) {
-		if ( cosign_check( head, cookie, &ui ) != 0 ) {
-		    goto loginscreen;
-		}
-		goto loginscreen;
-	    }
-	}
-
 	if ( cosign_check( head, cookie, &ui ) != 0 ) {
 	    goto loginscreen;
+	}
+
+	if ( !rebasic ) {
+	    if ( scookie->sl_flag & SL_REAUTH ) {
+		/* ui struct populated by cosign_check if good cookie */
+		goto loginscreen;
+	    }
 	}
 
 	if ( strcmp( ui.ui_ipaddr, ip_addr ) != 0 ) {
@@ -608,6 +688,21 @@ main( int argc, char *argv[] )
 	}
 
 	if ( factor != NULL ) {
+	    if ( parasitic_suffix ) {
+		if ( factor_set_dependencies( scookie,
+					      sl[ SL_RFACTOR ].sl_data,
+					      parasitic_suffix ) != 0 ) {
+		    fprintf( stderr, "failed to set factor dependencies from "
+				     "factorlist %s for service %s\n",
+				     sl[ SL_RFACTOR ].sl_data,
+				     scookie->sl_cookie );
+		    sl[ SL_TITLE ].sl_data = "Error: Internal error";
+		    sl[ SL_ERROR ].sl_data = "Failed to set factor "
+					     "dependencies";
+		    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
+		    exit( 0 );
+		}
+	    }
 	    require = strdup( factor );
 	    for ( r = strtok_r( require, ",", &reqp ); r != NULL;
 		    r = strtok_r( NULL, ",", &reqp )) {
@@ -618,8 +713,7 @@ main( int argc, char *argv[] )
 			break;
 		    }
 
-		    switch ( match_factor( r,
-					   ui.ui_factors[ i ],
+		    switch ( match_factor( r, ui.ui_factors[ i ],
 					   parasitic_suffix )) {
 		    case kSATISFIED:
 			req_more_auth = 0;
@@ -991,6 +1085,18 @@ loggedin:
 		    "service matching the one provided.";
 	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
+	}
+
+	if ( parasitic_suffix && cl[ CL_RFACTOR ].cl_data ) {
+	    if ( factor_set_dependencies( scookie,
+					  (char *)cl[ CL_RFACTOR ].cl_data,
+					  parasitic_suffix ) != 0 ) {
+		fprintf( stderr, "failed to set factor dependencies\n" );
+		sl[ SL_TITLE ].sl_data = "Error: Factor dependencies";
+		sl[ SL_ERROR ].sl_data = "Setting factor dependencies failed";
+		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
+		exit( 0 );
+	    }
 	}
 
 	/*

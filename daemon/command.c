@@ -782,6 +782,11 @@ service_valid( char *service )
     char		*p;
     int			rc;
 
+    if ( remote_cn == NULL ) {
+	syslog( LOG_ERR, "service_valid: no CN presented by client." );
+	return( NULL );
+    }
+
     /* limit access to CNs with matching cookies */
     if (( p = strchr( service, '=' )) == NULL ) {
 	syslog( LOG_ERR, "service_valid: %s missing \"=\"", service );
@@ -810,6 +815,15 @@ service_valid( char *service )
 	    syslog( LOG_ERR, "service_valid: regexec: %s\n", buf );
 	}
 
+	sl = NULL;
+	goto service_valid_done;
+    }
+
+    /* only match whole CNs */
+    if ( svm[ 0 ].rm_so != 0 || svm[ 0 ].rm_eo != strlen( remote_cn )) {
+	syslog( LOG_ERR, "service_valid: CN %s not allowed "
+			 "access to cookie %s (partial match)",
+			 remote_cn, service );
 	sl = NULL;
 	goto service_valid_done;
     }
