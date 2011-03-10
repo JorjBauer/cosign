@@ -302,7 +302,7 @@ cosign_handler( request_rec *r )
 		scheme = "https";
 	    }
 	    if ( port != uri.port ) {
-		dest = apr_psprintf( r->pool, "%s://%s:%d%s?%s&%s",
+		dest = apr_psprintf( r->pool, "%s://%s:%d%s",
 			    scheme, uri.hostname, uri.port, r->unparsed_uri );
 	    } else {
 		dest = apr_psprintf( r->pool, "%s://%s%s",
