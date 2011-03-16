@@ -301,7 +301,7 @@ cosign_handler( request_rec *r )
 	    } else {
 		scheme = "https";
 	    }
-	    if ( port != uri.port ) {
+	    if ( port != uri.port && cfg->noappendport != 1 ) {
 		dest = apr_psprintf( r->pool, "%s://%s:%d%s",
 			    scheme, uri.hostname, uri.port, r->unparsed_uri );
 	    } else {
