@@ -293,7 +293,8 @@ cosign_handler( request_rec *r )
     }
     hostname = ap_get_server_name( r );
     port = ap_get_server_port( r );
-    if ( strcasecmp( hostname, uri.hostname ) != 0 || port != uri.port ) {
+    if ( strcasecmp( hostname, uri.hostname ) != 0 ||
+		( port != uri.port && cfg->noappendport != 1 )) {
 	if ( cfg->validredir == 1 ) {
 	    /* always redirect to https unless CosignHttpOnly is enabled. */
 	    if ( cfg->http == 1 ) {
@@ -301,7 +302,7 @@ cosign_handler( request_rec *r )
 	    } else {
 		scheme = "https";
 	    }
-	    if ( port != uri.port && cfg->noappendport != 1 ) {
+	    if ( port != uri.port ) {
 		dest = apr_psprintf( r->pool, "%s://%s:%d%s",
 			    scheme, uri.hostname, uri.port, r->unparsed_uri );
 	    } else {
