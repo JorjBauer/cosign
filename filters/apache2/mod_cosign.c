@@ -44,7 +44,7 @@
 #define COSIGN_MERGE_TYPE_COMMAND	0
 #define COSIGN_MERGE_TYPE_REQUEST	1
 
-static int	cosign_redirect( request_rec *, cosign_host_config * );
+static int	cosign_redirect( request_rec *, cosign_host_config *, int );
 static cosign_host_config	*cosign_merge_cfg( void *, void *, int );
 
 /* Our exported link to Apache. */
@@ -86,6 +86,7 @@ cosign_create_config( apr_pool_t *p )
     cfg->noappendport = -1;
     cfg->proxy = -1;
     cfg->expiretime = 86400; /* 24 hours */
+    cfg->authttl = 0;
 #ifdef KRB
     cfg->krbtkt = -1;
 #ifdef GSS
@@ -119,7 +120,7 @@ cosign_init(apr_pool_t *p, apr_pool_t *plog, apr_pool_t *ptemp, server_rec *s)
 }
 
     int
-cosign_redirect( request_rec *r, cosign_host_config *cfg )
+cosign_redirect( request_rec *r, cosign_host_config *cfg, int cause )
 {
     char		*dest;
     char                *ref, *reqfact;
@@ -166,11 +167,13 @@ cosign_redirect( request_rec *r, cosign_host_config *cfg )
             reqfact = apr_pstrcat( r->pool, reqfact, ",",
                     cfg->reqfv[ i ], NULL );
         }
-        dest = apr_psprintf( r->pool,
-                "%s?%s&%s&%s", cfg->redirect, reqfact, cfg->service, ref );
+        dest = apr_psprintf( r->pool, "%s?%s%s&%s&%s", cfg->redirect,
+			cause == COSIGN_REAUTH ? "reauth&" : "",
+			reqfact, cfg->service, ref );
     } else {
-        dest = apr_psprintf( r->pool,
-                "%s?%s&%s", cfg->redirect, cfg->service, ref );
+        dest = apr_psprintf( r->pool, "%s?%s%s&%s", cfg->redirect,
+			cause == COSIGN_REAUTH ? "reauth&" : "",
+			cfg->service, ref );
     }
     apr_table_set( r->headers_out, "Location", dest );
     return( 0 );
@@ -393,7 +396,7 @@ cosign_authn( request_rec *r )
     }
 
     if ( apr_table_get( r->notes, "cosign-redirect" ) != NULL ) {
-        if ( cosign_redirect( r, cfg ) != 0 ) {
+        if ( cosign_redirect( r, cfg, COSIGN_RETRY ) != 0 ) {
             return( HTTP_SERVICE_UNAVAILABLE );
         }
         return( HTTP_MOVED_TEMPORARILY );
@@ -419,6 +422,7 @@ cosign_auth( request_rec *r )
     const char		*data = NULL, *pair = NULL;
     char		*misc = NULL;
     char		*my_cookie;
+    char		*authn_ts_str;
     int			cv;
     int			cookietime = 0;
     struct sinfo	si;
@@ -519,6 +523,11 @@ cosign_auth( request_rec *r )
 	apr_table_set( r->subprocess_env, "REMOTE_REALM", si.si_realm );
 	apr_table_set( r->subprocess_env, "COSIGN_FACTOR", si.si_factor );
 
+	
+	authn_ts_str = apr_psprintf( r->pool, "%"APR_TIME_T_FMT,
+				     (apr_time_t)si.si_atime );
+	apr_table_set( r->subprocess_env, "COSIGN_AUTHTIME", authn_ts_str );
+
 #ifdef KRB
 	if ( cfg->krbtkt == 1 ) {
 	    apr_table_set( r->subprocess_env, "KRB5CCNAME", si.si_krb5tkt );
@@ -556,7 +565,7 @@ redirect:
         apr_table_setn( r->notes, "cosign-redirect", "true" );
         return( DECLINED );
     } else {
-        if ( cosign_redirect( r, cfg ) != 0 ) {
+        if ( cosign_redirect( r, cfg, cv ) != 0 ) {
             return( HTTP_SERVICE_UNAVAILABLE );
         }
         return( HTTP_MOVED_TEMPORARILY );
@@ -1169,6 +1178,22 @@ set_cosign_expiretime( cmd_parms *params, void *mconfig, const char *arg )
     return( NULL );
 }
 
+    static const char *
+set_cosign_authttl( cmd_parms *params, void *mconfig, const char *arg )
+{
+    cosign_host_config		*cfg;
+
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
+
+    errno = 0;
+    cfg->authttl = strtol( arg, (char **)NULL, 10 );
+    if ( errno ) {
+	return( "mod_cosign: Bad CosignAuthenticationLifetime value" );
+    }
+
+    return( NULL );
+}
+
 static command_rec cosign_cmds[ ] =
 {
         AP_INIT_TAKE1( "CosignPostErrorRedirect", set_cosign_post_error,
@@ -1268,6 +1293,11 @@ static command_rec cosign_cmds[ ] =
 	AP_INIT_TAKE1( "CosignCookieExpireTime", set_cosign_expiretime,
 	NULL, RSRC_CONF,
 	"time (in seconds) after which we will issue a new service cookie" ),
+    
+	AP_INIT_TAKE1( "CosignAuthenticationLifetime", set_cosign_authttl,
+	NULL, RSRC_CONF | OR_AUTHCFG,
+	"time (in seconds) since last authentication that we require reauth" ),
+    
 
 #ifdef KRB
         AP_INIT_FLAG( "CosignGetKerberosTickets", set_cosign_tickets,

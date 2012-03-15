@@ -515,6 +515,11 @@ main( int argc, char *argv[] )
 	    p = strtok( NULL, "&" );
 	}
 
+	if ( strcmp( p, "reauth" ) == 0 ) {
+	    sp.sp_reauth = reauth = 1;
+	    p = strtok( NULL, "&" );
+	}
+
 	if ( p != NULL && strncmp( p, "factors=", 8 ) == 0 ) {
 	    if (( factor = strchr( p, '=' )) == NULL ) {
 		sl[ SL_TITLE ].sl_data = "Error: malformatted factors";
@@ -674,6 +679,10 @@ main( int argc, char *argv[] )
 
 	if ( cosign_check( head, cookie, &ui ) != 0 ) {
 	    goto loginscreen;
+	}
+
+	if ( reauth ) {
+	    scookie->sl_flag |= SL_REAUTH;
 	}
 
 	if ( !rebasic ) {
@@ -1137,6 +1146,10 @@ loggedin:
 		}
 	    }
 	}
+	if ( reauth ) {
+	    fprintf( stderr, "reauth requested...\n" );
+	    scookie->sl_flag |= SL_REAUTH;
+	}
 
 	if ( strcmp( ui.ui_ipaddr, ip_addr ) != 0 ) {
 	    goto loginscreen;
@@ -1254,7 +1267,7 @@ loginscreen:
 	    scookie->sl_flag |= SL_REAUTH;
 	}
 
-	if (( scookie != NULL ) && ( scookie->sl_flag & SL_REAUTH )) {
+	if ( scookie != NULL && (( scookie->sl_flag & SL_REAUTH ) || reauth )) {
 	    sl[ SL_DFACTOR ].sl_data = NULL;
 	    sl[ SL_RFACTOR ].sl_data = smash( scookie->sl_factors );
 	    sl[ SL_TITLE ].sl_data = "Re-Authentication Required";

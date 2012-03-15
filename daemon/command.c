@@ -192,7 +192,7 @@ f_notauth( SNET *sn, int ac, char *av[], SNET *pushersn )
 banner( SNET *sn )
 {
     snet_writef( sn, "220 2 Collaborative Web Single Sign-On "
-		"[COSIGNv%d FACTORS=%d REKEY]\r\n",
+		"[COSIGNv%d FACTORS=%d REKEY AUTHTIME]\r\n",
 		COSIGN_PROTO_CURRENT, COSIGN_MAXFACTORS );
 }
 
@@ -880,7 +880,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 
     /*
      * C: CHECK servicecookie [FACTORLIST] [ "rekey" ]
-     * S: 231 ip principal realm [ rekeyed-cookie ]
+     * S: 231 ip principal realm [authtime] [ rekeyed-cookie ]
      */
 
     /*
@@ -890,7 +890,7 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 
     /*
      * C: REKEY servicecookie
-     * S: 233 ip principal realm rekeyed-cookie
+     * S: 233 ip principal realm [authtime] rekeyed-cookie
      */
 
     if (( al->al_key != CGI ) && ( al->al_key != SERVICE )) {
@@ -1124,8 +1124,10 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
     if ( COSIGN_PROTO_SUPPORTS_FACTORS( protocol )) {
-	snet_writef( sn, "%d %s %s %s %s\r\n",
+	snet_writef( sn, "%d %s %s %s %lld %s\r\n",
 		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
+		COSIGN_PROTO_SUPPORTS_AUTHTIME( protocol ) ?
+				(long long int)ci.ci_itime : 0,
 		( status == 233 ? rcookie : "" ));
     } else {
 	/* if there is more than one realm, we just give the first */
