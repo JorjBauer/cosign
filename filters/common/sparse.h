@@ -7,7 +7,8 @@ struct sinfo {
 #ifdef KRB
     char	si_krb5tkt[ MAXPATHLEN ];
 #endif /* KRB */
-    time_t	si_itime;
+    time_t	si_itime;		/* time of issue (CHECK) */
+    time_t	si_atime;		/* time of last authn */
 };
 
 int read_scookie( char *, struct sinfo *, void * );

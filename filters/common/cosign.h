@@ -41,6 +41,7 @@ typedef struct {
     int                 noappendport;
     int			proxy;
     int			expiretime;
+    long		authttl;
 #ifdef KRB
 #ifdef GSS
     int			gss;
@@ -61,6 +62,7 @@ struct connlist {
 #define COSIGN_OK		0
 #define COSIGN_RETRY		1
 #define COSIGN_LOGGED_OUT	2
+#define COSIGN_REAUTH		3
 
 #define IPCHECK_NEVER		0
 #define IPCHECK_INITIAL		1

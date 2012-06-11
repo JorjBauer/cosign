@@ -93,6 +93,16 @@ read_scookie( char *path, struct sinfo *si, void *s )
 	    break;
 #endif /* KRB */
 
+	case 't':
+	    errno = 0;
+	    si->si_atime = strtol( p, (char **)NULL, 10 );
+	    if ( errno ) {
+		cosign_log( APLOG_NOTICE, s, "mod_cosign: read_scookie: "
+			    "bad authentication time \"%s\", setting to 0", p );
+		si->si_atime = 0;
+	    }
+	    break;
+
 	default:
 	    cosign_log( APLOG_ERR, s,
 		    "mod_cosign: read_scookie: unknown key %c", line[0] );

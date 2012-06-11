@@ -115,6 +115,29 @@ mkcookiepath( char *prefix, int hashlen, char *cookie, char *buf, int len )
     return( -1 );
 }
 
+    static int
+cosign_authn_expired( cosign_host_config *cfg, struct sinfo *si,
+	struct timeval *tv, void *s )
+{
+    if ( !COSIGN_PROTO_SUPPORTS_AUTHTIME( si->si_protocol )) {
+	cosign_log( APLOG_DEBUG, s, "mod_cosign: cosign_authn_expired: "
+		    "weblogin server does not support authtime, skipping "
+		    "authn expiration check" );
+	return( 0 );
+    }
+
+    cosign_log( APLOG_DEBUG, s, "mod_cosign: cosign_authn_expired: "
+		"cfg->authttl is %d", cfg->authttl );
+    if ( cfg->authttl > 0 && ( tv->tv_sec - si->si_atime ) > cfg->authttl ) {
+	cosign_log( APLOG_DEBUG, s, "mod_cosign: cosign_authn_expired: "
+		    "stale authentication. authn lifetime: %lld, last "
+		    "authn: %lld", cfg->authttl, si->si_atime );
+	return( 1 );
+    }
+
+    return( 0 );
+}
+
 
     int
 cosign_cookie_valid( cosign_host_config *cfg, char *cookie, char **rekey,
@@ -170,6 +193,12 @@ retry:
 	    goto netcheck;
 	}
 
+	if ( cosign_authn_expired( cfg, &lsi, &tv, s )) {
+	    cosign_log( APLOG_NOTICE, s, "mod_cosign: cosign_cookie_value: "
+			"stale authentication, requesting reauth..." );
+	    return( COSIGN_REAUTH );
+	}
+
 	/*
 	 * to ensure that COSIGN_FACTORS is always populated,
 	 * copy the factor list before checking to see if we
@@ -221,6 +250,7 @@ retry:
 	strcpy( si->si_ipaddr, lsi.si_ipaddr );
 	strcpy( si->si_user, lsi.si_user );
 	strcpy( si->si_realm, lsi.si_realm );
+	si->si_atime = lsi.si_atime;
 
 #ifdef KRB
 	if ( cfg->krbtkt ) {
@@ -246,6 +276,12 @@ netcheck:
 		"mod_cosign: server ip info %s does not match "
 		"browser ip %s", si->si_ipaddr, ipaddr );
 	return( COSIGN_RETRY );
+    }
+
+    if ( cosign_authn_expired( cfg, si, &tv, s )) {
+	cosign_log( APLOG_INFO, s, "mod_cosign: cosign_cookie_value: "
+		    "stale authentication, requesting reauth..." );
+	return( COSIGN_REAUTH );
     }
 
     if ( !newfile ) {
@@ -280,6 +316,11 @@ netcheck:
 
 	if ( COSIGN_PROTO_SUPPORTS_FACTORS( si->si_protocol )) {
 	    if ( strcmp( si->si_factor, lsi.si_factor ) != 0 ) {
+		goto storecookie;
+	    }
+	}
+	if ( COSIGN_PROTO_SUPPORTS_AUTHTIME( si->si_protocol )) {
+	    if ( si->si_atime > lsi.si_atime ) {
 		goto storecookie;
 	    }
 	}
@@ -352,6 +393,10 @@ storecookie:
 	fprintf( tmpf, "k%s\n", si->si_krb5tkt );
     }
 #endif /* KRB */
+
+    if ( COSIGN_PROTO_SUPPORTS_AUTHTIME( si->si_protocol )) {
+	fprintf( tmpf, "t%ld\n", si->si_atime );
+    }
 
     if ( fclose ( tmpf ) != 0 ) {
 	if ( unlink( tmppath ) != 0 ) {

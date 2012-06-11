@@ -62,6 +62,7 @@ struct capability		caps[] = {
     /* name, name length, mask, callback */
     { "FACTORS", 7, COSIGN_CAPA_FACTORS, NULL },
     { "REKEY",  5, COSIGN_CAPA_REKEY, NULL },
+    { "AUTHTIME",  8, COSIGN_CAPA_AUTHTIME, NULL },
 };
 
     static int
@@ -135,6 +136,9 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 	return( COSIGN_ERROR );
     }
 
+    cosign_log( APLOG_DEBUG, s, "mod_cosign: netcheck_cookie: "
+		"%s returned \"%s\"", cmd, line );
+
     switch( *line ) {
     case '2':
 	if (( rate = rate_tick( &checkpass )) != 0.0 ) {
@@ -177,6 +181,10 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
     } else {
 	/* last factor is last argument */
 	mf = ac;
+    }
+    if ( COSIGN_CONN_SUPPORTS_AUTHTIME( conn )) {
+	/* last factor is followed by authtime, then possibly rekeyed cookie */
+	mf--;
     }
 
     /* I guess we check some sizing here :) */
@@ -276,6 +284,19 @@ netcheck_cookie( char *scookie, char **rekey, struct sinfo *si,
 	    return( COSIGN_ERROR );
 	}
 	*rekey = rekeyed_cookie;
+    }
+
+    si->si_atime = 0;
+    if ( COSIGN_PROTO_SUPPORTS_AUTHTIME( conn->conn_proto )) {
+	cosign_log( APLOG_NOTICE, s, "mod_cosign: netcheck_cookie: "
+		    "proto supports AUTHTIME" );
+	errno = 0;
+	si->si_atime = strtol( av[ mf ], (char **)NULL, 10 );
+	if ( errno ) {
+	    cosign_log( APLOG_ERR, s, "mod_cosign: netcheck_cookie: "
+			"bad authtime value \"%s\", setting to 0.", av[ mf ] );
+	    si->si_atime = 0;
+	}
     }
 
     return( COSIGN_OK );
