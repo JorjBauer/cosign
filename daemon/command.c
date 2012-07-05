@@ -400,11 +400,14 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 		newinfo = 1;
 	    }
 	}
+#ifdef notdef
 	if ( newinfo == 0 ) {
+	    syslog( LOG_NOTICE, "No newinfo, not storing cookie" );
 	    /* Nothing new; nothing to write. All done. */
 	    snet_writef( sn, "%d LOGIN Cookie Already Stored.\r\n", 202 );
 	    return( 0 );
 	}
+#endif /* notdef */
     } else {
 	realm_ptr = new_ci.ci_realm;
 	realm_ptr += sprintf( realm_ptr, "%s", av[ 4 ] );
@@ -413,10 +416,26 @@ f_login( SNET *sn, int ac, char *av[], SNET *pushersn )
 	}
     }
 
+    if ( gettimeofday( &tv, NULL ) != 0 ) {
+	syslog( LOG_ERR, "f_login: gettimeofday: %m" );
+	snet_writef( sn, "%d LOGIN time failure\r\n", 507 );
+	return( -1 );
+    }
+
     if ( addinfo ) {
 	new_ci.ci_itime = old_ci.ci_itime;
     } else {
 	new_ci.ci_itime = tv.tv_sec;
+    }
+
+    /* update time of authentication */
+    if ( snprintf( new_ci.ci_ctime, sizeof( new_ci.ci_ctime ),
+		   "%lld", (long long int)tv.tv_sec ) >=
+		    sizeof( new_ci.ci_ctime )) {
+	syslog( LOG_ERR, "f_login: seting authN time failed: "
+			 "buffer too small" );
+	snet_writef( sn, "%d LOGIN time failure\r\n", 506 );
+	return( -1 );
     }
 
     if ( krb ) {
@@ -1124,12 +1143,15 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
     }
 
     if ( COSIGN_PROTO_SUPPORTS_FACTORS( protocol )) {
-	snet_writef( sn, "%d %s %s %s ",
-		status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors );
 	if ( COSIGN_PROTO_SUPPORTS_AUTHTIME( protocol )) {
-		snet_writef( sn, "%lld ", (long long int)ci.ci_itime );
+	    snet_writef( sn, "%d %s %s %s %s %s\r\n",
+		    status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
+		    ci.ci_ctime, ( status == 233 ? rcookie : "" ));
+	} else {
+	    snet_writef( sn, "%d %s %s %s %s\r\n",
+		    status, ci.ci_ipaddr_cur, ci.ci_user, allowed_factors,
+		    ( status == 233 ? rcookie : "" ));
 	}
-	snet_writef( sn, "%s\r\n", ( status == 233 ? rcookie : "" ));
     } else {
 	/* if there is more than one realm, we just give the first */
 	if (( p = strtok( allowed_factors, " " )) != NULL ) {
@@ -1139,8 +1161,14 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 	    snet_writef( sn, "%d %s %s %s\r\n",
 		    status, ci.ci_ipaddr, ci.ci_user, allowed_factors );
 	}
-
     }
+
+    if (( p = strchr( av[ 1 ], '=' )) != NULL ) {
+	*p = '\0';
+	syslog( LOG_DEBUG, "%s CHECK %s", remote_cn, av[ 1 ] );
+	*p = '=';
+    }
+	
     return( 0 );
 }
 

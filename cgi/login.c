@@ -399,9 +399,11 @@ cosign_login_krb5( struct connlist *head, char *cosignname, char *id,
 	}
     }
 
+#ifdef notdef
     if ( sp->sp_reauth && sp->sp_ipchanged == 0 ) {
 	return( COSIGN_CGI_OK );
     }
+#endif /* notdef */
 
     if ( store_tickets ) {
 	if (( kerror = krb5_cc_initialize( kcontext, kccache, kprinc )) != 0 ) {
