@@ -368,38 +368,40 @@ satisfied( char		*sfactors[], char *rfactors )
     if ( rfactors != NULL ) {
 	require = strdup( rfactors );
 	for ( r = strtok_r( require, ",", &reqp ); r != NULL;
-		r = strtok_r( require, ",", &reqp )) {
+		r = strtok_r( NULL, ",", &reqp )) {
 	    req_more_auth = 0;
 	    for ( i = 0; sfactors[ i ] != NULL; i++ ) {
 		if ( match_factor( r, sfactors[ i ], suffix )) {
 		    break;
 		}
 
-		switch ( match_factor( r, sfactors[ i ], parasitic_suffix )) {
-		case kSATISFIED:
-		    req_more_auth = 0;
-		    break;
+		if ( parasitic_suffix ) {
+		    switch ( match_factor( r, sfactors[ i ],
+				parasitic_suffix )) {
+		    case kSATISFIED:
+			req_more_auth = 0;
+			break;
 
-		case kSUBSTITUTED_REV:
-		    /*
-		     * This is a dependent (parasitic) factor. Reauth the
-		     * the factor it's dependent on.
-		     */
-		    req_more_auth = 1;
-		    break;
-		}
-		
+		    case kSUBSTITUTED_REV:
+			/*
+			 * This is a dependent (parasitic) factor. Reauth the
+			 * the factor it's dependent on.
+			 */
+			req_more_auth = 1;
+			break;
+		    }
 
-		if ( !req_more_auth ) {
-		    break;
+		    if ( req_more_auth ) {
+			break;
+		    }
 		}
 	    }
-	    if ( sfactors[ i ] == NULL ) {
+	    if ( sfactors[ i ] == NULL || req_more_auth ) {
 		break;
 	    }
 	}
 	free( require );
-	if ( r != NULL || req_more_auth ) {
+	if ( r != NULL ) {
 	    return( 0 );
 	}
     }
@@ -453,8 +455,8 @@ main( int argc, char *argv[] )
     char        		new_cookie[ 255 ];
     char			new_scookie[ 255 ];
     char			*data, *ip_addr, *tmpl = NULL, *server_name;
-    char			*cookie = NULL, *method, *qs;
-    char			*misc = NULL, *rfactors = NULL, *ufactors, *p;
+    char			*cookie = NULL, *method, *qs, *misc = NULL;
+    char			*rfactors = NULL, *ufactors = NULL, *p;
     char			*ref = NULL, *service = NULL, *login = NULL;
     char			*remote_user = NULL;
     char			*subject_dn = NULL, *issuer_dn = NULL;
