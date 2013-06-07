@@ -38,6 +38,7 @@
 #define kSUBSTITUTED_REV 3
 
 extern char	*cosign_version;
+extern char	*userfactorpath;
 extern char	*suffix;
 extern char	*parasitic_suffix;
 extern struct factorlist	*factorlist;
@@ -358,6 +359,54 @@ match_factor( char *required, char *satisfied, char *suffix )
 }
 
     static int
+satisfied( char		*sfactors[], char *rfactors )
+{
+    char		*require, *reqp, *r;
+    int			req_more_auth = 0;
+    int			i;
+
+    if ( rfactors != NULL ) {
+	require = strdup( rfactors );
+	for ( r = strtok_r( require, ",", &reqp ); r != NULL;
+		r = strtok_r( require, ",", &reqp )) {
+	    req_more_auth = 0;
+	    for ( i = 0; sfactors[ i ] != NULL; i++ ) {
+		if ( match_factor( r, sfactors[ i ], suffix )) {
+		    break;
+		}
+
+		switch ( match_factor( r, sfactors[ i ], parasitic_suffix )) {
+		case kSATISFIED:
+		    req_more_auth = 0;
+		    break;
+
+		case kSUBSTITUTED_REV:
+		    /*
+		     * This is a dependent (parasitic) factor. Reauth the
+		     * the factor it's dependent on.
+		     */
+		    req_more_auth = 1;
+		    break;
+		}
+		
+
+		if ( !req_more_auth ) {
+		    break;
+		}
+	    }
+	    if ( sfactors[ i ] == NULL ) {
+		break;
+	    }
+	}
+	free( require );
+	if ( r != NULL || req_more_auth ) {
+	    return( 0 );
+	}
+    }
+    return( 1 );
+}
+
+    static int
 mkscookie( char *service_name, char *new_scookie, int len )
 {
     char			tmp[ 128 ];
@@ -374,20 +423,38 @@ mkscookie( char *service_name, char *new_scookie, int len )
     return( 0 );
 }
 
+    static char *
+getuserfactors( char *path, char *login )
+{
+    struct factorlist		ufl;
+    char			*msg = NULL;
+    int				rc;
+
+    ufl.fl_path = path;
+    ufl.fl_flag = 0;
+    ufl.fl_formfield[ 0 ] = NULL;
+    ufl.fl_next = NULL;
+
+    if ((( rc = execfactor( &ufl, NULL, login, &msg )) == COSIGN_CGI_OK ) &&
+	    msg != NULL ) {
+	return( msg );
+    }
+    return( NULL );
+}
+
     int
 main( int argc, char *argv[] )
 {
     int				rc = 0, cookietime = 0, cookiecount = 0;
     int				rebasic = 0, len, server_port;
     int				reauth = 0, scheme = 2;
-    int				i, j;
+    int				i;
     char                	new_cookiebuf[ 128 ];
     char        		new_cookie[ 255 ];
     char			new_scookie[ 255 ];
     char			*data, *ip_addr, *tmpl = NULL, *server_name;
     char			*cookie = NULL, *method, *qs;
-    char			*misc = NULL, *factor = NULL, *p, *r;
-    char			*require, *reqp;
+    char			*misc = NULL, *rfactors = NULL, *ufactors, *p;
     char			*ref = NULL, *service = NULL, *login = NULL;
     char			*remote_user = NULL;
     char			*subject_dn = NULL, *issuer_dn = NULL;
@@ -407,14 +474,11 @@ main( int argc, char *argv[] )
     char			*subst_factor = NULL;
     int				req_more_auth = 0;
 
-    if ( argc == 2 ) {
-	if ( strcmp( argv[ 1 ], "-V" ) == 0 ) {
-	    printf( "%s\n", cosign_version );
-	    exit( 0 );
-	} else if ( strncmp( argv[ 1 ], "basic", 5 ) == 0 ) {
-	    rebasic = 1;
-	}
-    } else if ( argc != 1 ) {
+    if ( argc == 2 && ( strcmp( argv[ 1 ], "-V" ) == 0 )) {
+	printf( "%s\n", cosign_version );
+	exit( 0 );
+    }
+    if ( argc != 1 ) {
 	fprintf( stderr, "usage: %s [-V]\n", argv[ 0 ] );
 	exit( 1 );
     }
@@ -460,6 +524,9 @@ main( int argc, char *argv[] )
 	exit(0);
     }
     server_port = atoi( sport);
+    if (( realm = getenv( "COSIGN_DEFAULT_FACTOR" )) == NULL ) {
+	realm = "basic";
+    }
 
     subject_dn = getenv( "SSL_CLIENT_S_DN" );
     issuer_dn = getenv( "SSL_CLIENT_I_DN" );
@@ -487,8 +554,6 @@ main( int argc, char *argv[] )
 		exit ( 0 );
 	    }
 	    remote_user = login;
-	} else {
-	    realm = "basic";
 	}
     }
 
@@ -520,16 +585,17 @@ main( int argc, char *argv[] )
 	    p = strtok( NULL, "&" );
 	}
 
+	// XXX comma separated list of required factors
 	if ( p != NULL && strncmp( p, "factors=", 8 ) == 0 ) {
-	    if (( factor = strchr( p, '=' )) == NULL ) {
+	    if (( rfactors = strchr( p, '=' )) == NULL ) {
 		sl[ SL_TITLE ].sl_data = "Error: malformatted factors";
 		sl[ SL_ERROR ].sl_data = "Unable to determine required "
 			"factors from query string.";
 		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
 		exit( 0 );
 	    }
-	    factor++;
-	    sl[ SL_RFACTOR ].sl_data = factor;
+	    rfactors++;
+	    sl[ SL_RFACTOR ].sl_data = rfactors;
 	    p = strtok( NULL, "&" );
 	}
 
@@ -547,6 +613,10 @@ main( int argc, char *argv[] )
 	    }
 	    sl[ SL_SERVICE ].sl_data = service;
 
+	    /*
+	     * Everything after the service to the end of the query string
+	     * is the ref.
+	     */
 	    if (( ref = strtok( NULL, "" )) == NULL ) {
 		sl[ SL_TITLE ].sl_data = "Error: malformatted referrer";
 		sl[ SL_ERROR ].sl_data = "Unable to determine referring "
@@ -653,9 +723,9 @@ main( int argc, char *argv[] )
 	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
 	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
 		    "service matching the one provided.";
-		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
-		exit( 0 );
-	    }
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
+	    exit( 0 );
+	}
 
 	if ( match_substitute( scookie->sl_wkurl, sizeof( matchbuf ),
 		matchbuf, nmatch, matches, service ) != 0 ) {
@@ -696,7 +766,9 @@ main( int argc, char *argv[] )
 	    goto loginscreen;
 	}
 
-	if ( factor != NULL ) {
+	ufactors = getuserfactors( userfactorpath, ui.ui_login );
+
+	if ( rfactors != NULL ) {
 	    if ( parasitic_suffix ) {
 		if ( factor_set_dependencies( scookie,
 					      sl[ SL_RFACTOR ].sl_data,
@@ -712,49 +784,17 @@ main( int argc, char *argv[] )
 		    exit( 0 );
 		}
 	    }
-	    require = strdup( factor );
-	    for ( r = strtok_r( require, ",", &reqp ); r != NULL;
-		    r = strtok_r( NULL, ",", &reqp )) {
-		req_more_auth = 0;
-		for ( i = 0; ui.ui_factors[ i ] != NULL; i++ ) {
-		    if ( match_factor( r, ui.ui_factors[ i ], suffix )) {
-			req_more_auth = 0;
-			break;
-		    }
+	}
 
-		    switch ( match_factor( r, ui.ui_factors[ i ],
-					   parasitic_suffix )) {
-		    case kSATISFIED:
-			req_more_auth = 0;
-			goto outer;
-		    case kSUBSTITUTED_REV:
-			/* This is a dependent (parasitic) factor. Reauth 
-			 * the factor that it's dependent on. */
-			req_more_auth = 1;
-			break;
-		    }
-		}
-	    outer:
-		if ( req_more_auth ) {
-		    /* While looping through factor matches above, we want 
-		     * absolute matches to supercede substitution matches. 
-		     * If we got through the list with a substitution match
-		     * that requires more authentication, then we'll 
-		     * wind up here and force that reauth. */
-		    sl[ SL_ERROR ].sl_data = "Additional authentication"
-			" is required.";
-		    goto loginscreen;
-		}
-
-		if ( ui.ui_factors[ i ] == NULL ) {
-		    break;
-		}
-	    }
-	    if ( r != NULL ) {
-		sl[ SL_ERROR ].sl_data = "Additional authentication"
-			" is required.";
-		goto loginscreen;
-	    }
+	/*
+	 * We don't decide exactly what factors to put in SL_RFACTOR unitl
+	 * just before returning the login page, so it's A-OK to handle user
+	 * and required factors separately.
+	 */
+	if ( !satisfied( ui.ui_factors, ufactors ) ||
+		!satisfied( ui.ui_factors, rfactors )) {
+	    sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
+	    goto loginscreen;
 	}
 
 	imploded_factors[ 0 ] = '\0';
@@ -772,8 +812,8 @@ main( int argc, char *argv[] )
 	    service = new_scookie;
 
 	    /* Generate an imploded required-factor list. */
-	    if ( factor != NULL ) {
-		if ( implode_factors( factor, imploded_factors, sizeof(imploded_factors) ) == 0 ) {
+	    if ( rfactors != NULL ) {
+		if ( implode_factors( rfactors, imploded_factors, sizeof(imploded_factors) ) == 0 ) {
 		    fprintf( stderr, "%s: implode_factors failed\n", script );
 		    sl[ SL_TITLE ].sl_data = "Error: implode_factors Failed";
 		    sl[ SL_ERROR ].sl_data = "We were unable to create a service "
@@ -805,7 +845,10 @@ main( int argc, char *argv[] )
 
     if ( strcmp( method, "POST" ) != 0 ) {
 	if ( cosign_check( head, cookie, &ui ) != 0 ) {
-	    if ( rebasic && cosign_login( head, cookie, ip_addr, remote_user,
+	    if ( !rebasic ) {
+		goto loginscreen;
+	    }
+	    if ( cosign_login( head, cookie, ip_addr, remote_user,
 			realm, krbtkt_path ) < 0 ) {
 		fprintf( stderr, "cosign_login: basic login failed\n" ) ;
 		sl[ SL_TITLE ].sl_data = "Error: Please try later";
@@ -813,8 +856,6 @@ main( int argc, char *argv[] )
 			"authentication server. Please try again later.";
 		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 		exit( 0 );
-	    } else if ( !rebasic ) {
-		goto loginscreen;
 	    }
 	}
 
@@ -872,15 +913,19 @@ main( int argc, char *argv[] )
 		sl[ SL_SERVICE ].sl_data = cl[ CL_SERVICE ].cl_data;
     }
     if ( cl[ CL_RFACTOR ].cl_data != NULL ) {
-	factor = sp.sp_factor =
+	rfactors = sp.sp_factor =
 		sl[ SL_RFACTOR ].sl_data = cl[ CL_RFACTOR ].cl_data;
     }
     if (( cl[ CL_REAUTH ].cl_data != NULL ) && 
 	    ( strcmp( cl[ CL_REAUTH ].cl_data, "true" ) == 0 )) {
-	sp.sp_reauth = reauth = 1;
+	reauth = sp.sp_reauth = 1;
     }
 
     if ( cosign_check( head, cookie, &ui ) == 0 ) {
+	/*
+	 * We're setting CL_LOGIN because we pass cl (not login) to
+	 * the external factors.
+	 */
 	login = cl[ CL_LOGIN ].cl_data = ui.ui_login;
     } else {
 	if ( cl[ CL_LOGIN ].cl_data == NULL ) {
@@ -1005,7 +1050,7 @@ loggedin:
 		    " before secondary authentication.";
 	    goto loginscreen;
 	}
-	if (( rc = execfactor( fl, cl, &msg )) != COSIGN_CGI_OK ) {
+	if (( rc = execfactor( fl, cl, NULL, &msg )) != COSIGN_CGI_OK ) {
 	    sl[ SL_ERROR ].sl_data = msg;
             if ( rc == COSIGN_CGI_PASSWORD_EXPIRED ) {
 	        sl[ SL_TITLE ].sl_data = "Password Expired";
@@ -1057,7 +1102,15 @@ loggedin:
 	goto loginscreen;
     }
 
-    if ( service ) {
+    ufactors = getuserfactors( userfactorpath, ui.ui_login );
+
+    if ( !satisfied( ui.ui_factors, ufactors ) ||
+	    !satisfied( ui.ui_factors, rfactors )) {
+	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
+	goto loginscreen;
+    }
+
+    if ( service != NULL && ref != NULL ) {
 	if (( p = strchr( service, '=' )) == NULL ) {
 	    scheme = 3;
 	    scookie = service_find( service, matches, nmatch );
@@ -1113,39 +1166,19 @@ loggedin:
 	 * required factors have been just satisfied.
 	 */
 	if ( scookie->sl_flag & SL_REAUTH ) {
-	    for ( i = 0; scookie->sl_factors[ i ] != NULL; i++ ) {
-		for ( j = 0; new_factors[ j ] != NULL; j++ ) {
-		    switch ( match_factor( scookie->sl_factors[ i ],
-			    new_factors[ j ], suffix )) {
-		    case kSATISFIED:
-			goto outer2;
-		    case kSUBSTITUTED_FWD:
-			/* Grant the actual factor. */
-			if ( cosign_login( head,
-					   cookie,
-					   ip_addr, 
-					   login,
-					   scookie->sl_factors[ i ],
-					   NULL ) < 0 ) {
-			    sl[ SL_TITLE ].sl_data = "Error: Please try later";
-			    sl[ SL_ERROR ].sl_data = "We were unable to "
-				"contact the authentication server. Please "
-				"try again later.";
-			    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
-			    exit( 0 );
-			}
-			goto outer2;
-		    /* deliberately ignoring kSUBSTITUTED_REV. */
-		    }
-		}
-	    outer2:
-		if ( new_factors[ j ] == NULL ) {
-		    sl[ SL_ERROR ].sl_data = "Please complete"
-			    " all required fields to re-authenticate.";
-		    goto loginscreen;
-		}
+	    if ( scookie->sl_factors[ 0 ] == NULL &&
+		    new_factors[ 0 ] == NULL ) {
+		sl[ SL_ERROR ].sl_data = "Please complete any field"
+			" to re-authenticate.";
+		goto loginscreen;
+	    }
+	    if ( !satisfied( scookie->sl_factors, smash( new_factors ))) {
+		sl[ SL_ERROR ].sl_data = "Please complete all required"
+			" fields to re-authenticate.";
+		goto loginscreen;
 	    }
 	}
+
 	if ( reauth ) {
 	    fprintf( stderr, "reauth requested...\n" );
 	    scookie->sl_flag |= SL_REAUTH;
@@ -1193,11 +1226,9 @@ loggedin:
 	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
             exit( 0 );
         }
-    }
 
-    loop_checker( cookietime, cookiecount, cookie );
+	loop_checker( cookietime, cookiecount, cookie );
 
-    if (( ref != NULL ) && ( ref = strstr( ref, "http" )) != NULL ) {
 	if ( scheme == 3 ) {
 	    printf( "Location: %s?%s&%s\n\n", matchbuf, service, ref );
 	} else {
@@ -1268,8 +1299,22 @@ loginscreen:
 	}
 
 	if ( scookie != NULL && (( scookie->sl_flag & SL_REAUTH ) || reauth )) {
+
 	    sl[ SL_DFACTOR ].sl_data = NULL;
-	    sl[ SL_RFACTOR ].sl_data = smash( scookie->sl_factors );
+	    if ( scookie->sl_factors[ 0 ] != NULL ) {
+		/*
+		 * XXX
+		 * ufactors and rfactors that haven't yet been satisfied,
+		 * but aren't in sl_factors still ought to be in SL_RFACTOR.
+		 */
+		sl[ SL_RFACTOR ].sl_data = smash( scookie->sl_factors );
+	    } else {
+		/*
+		 * Might be better to let the user pick a factor.
+		 */
+		sl[ SL_RFACTOR ].sl_data = ui.ui_factors[ 0 ];
+	    }
+
 	    sl[ SL_TITLE ].sl_data = "Re-Authentication Required";
 	    if ( sl[ SL_ERROR ].sl_data == NULL ) {
 		sl[ SL_ERROR ].sl_data = "Please Re-Authenticate.";
@@ -1285,8 +1330,13 @@ loginscreen:
 	    }
 	    tmpl = REAUTH_HTML;
 	} else {
+	    /*
+	     * XXX
+	     * For the sake of the user interface, we'd like SL_RFACTORS to
+	     * contain ufactors and rfactors.
+	     */
 	    sl[ SL_DFACTOR ].sl_data = smash( ui.ui_factors );
-	    sl[ SL_RFACTOR ].sl_data = factor;
+	    sl[ SL_RFACTOR ].sl_data = rfactors;
 	    tmpl = LOGIN_ERROR_HTML;
 	}
     }

@@ -22,7 +22,8 @@
 #include "factor.h"
 
     int
-execfactor( struct factorlist *fl, struct cgi_list cl[], char **msg )
+execfactor( struct factorlist *fl, struct cgi_list cl[], char *login,
+	char **msg )
 {
     int			fd0[ 2 ], fd1[ 2 ], i, status;
     pid_t		pid;
@@ -57,7 +58,7 @@ execfactor( struct factorlist *fl, struct cgi_list cl[], char **msg )
 	    perror( "close" );
 	    exit( 1 );
 	}
-	execl( fl->fl_path, fl->fl_path, NULL );
+	execl( fl->fl_path, fl->fl_path, login, NULL );
 	perror( fl->fl_path );
 	exit( 1 );
 
@@ -85,6 +86,7 @@ execfactor( struct factorlist *fl, struct cgi_list cl[], char **msg )
 	    }
 	}
     }
+
     if ( snet_close( sn_w ) != 0 ) {
 	perror( "snet_close" );
 	exit( 1 );

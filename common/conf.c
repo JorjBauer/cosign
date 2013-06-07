@@ -50,6 +50,7 @@ static struct matchlist		defkerberosauthenticator = {
     "kerberos", "([^@]+)", "$1", "", NULL,
 };
 
+char			*userfactorpath = NULL;
 char			*suffix = NULL;
 char			*parasitic_suffix = NULL;
 char			*mysql_user = NULL;
@@ -654,7 +655,7 @@ read_config( char *path )
 
 	} else if ( strcmp( av[ 0 ], "passwd" ) == 0 ) {
 	    if ( ac != 5 ) {
-		fprintf( stderr, "line %d: keyword authenticator takes 5 args\n",
+		fprintf( stderr, "line %d: keyword passwd takes 5 args\n",
 			linenum );
 		return( -1 );
 	    }
@@ -815,6 +816,23 @@ read_config( char *path )
 		return( -1 );
 	    }
 	    if (( parasitic_suffix = strdup( av[ 1 ] )) == NULL ) {
+		perror( "malloc" );
+		return( -1 );
+	    }
+
+	} else if ( strcmp( av[ 0 ], "userfactor" ) == 0 ) {
+	    if ( ac != 2 ) {
+		fprintf( stderr, "line %d: keyword userfactor takes 1 arg\n",
+			linenum );
+		return( -1 );
+	    }
+	    if ( userfactorpath != NULL ) {
+		fprintf( stderr, "line %d"
+			" keyword userfactor already set to %s\n",
+			linenum, userfactorpath );
+		return( -1 );
+	    }
+	    if (( userfactorpath = strdup( av[ 1 ] )) == NULL ) {
 		perror( "malloc" );
 		return( -1 );
 	    }
