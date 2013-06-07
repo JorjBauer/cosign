@@ -358,18 +358,21 @@ match_factor( char *required, char *satisfied, char *suffix )
     return( kUNSATISFIED );
 }
 
+#define COSIGN_FACTOR_SATISFIED_FLAG	(1 << 0)
+#define COSIGN_FACTOR_REAUTH_FLAG	(1 << 4)
+#define COSIGN_FACTOR_REAUTH_REQUIRED(x) \
+	(((x) & COSIGN_FACTOR_REAUTH_FLAG ))
     static int
 satisfied( char		*sfactors[], char *rfactors )
 {
     char		*require, *reqp, *r;
-    int			req_more_auth = 0;
     int			i;
+    int			rc = 0;
 
     if ( rfactors != NULL ) {
 	require = strdup( rfactors );
 	for ( r = strtok_r( require, ",", &reqp ); r != NULL;
 		r = strtok_r( NULL, ",", &reqp )) {
-	    req_more_auth = 0;
 	    for ( i = 0; sfactors[ i ] != NULL; i++ ) {
 		if ( match_factor( r, sfactors[ i ], suffix )) {
 		    break;
@@ -379,7 +382,6 @@ satisfied( char		*sfactors[], char *rfactors )
 		    switch ( match_factor( r, sfactors[ i ],
 				parasitic_suffix )) {
 		    case kSATISFIED:
-			req_more_auth = 0;
 			break;
 
 		    case kSUBSTITUTED_REV:
@@ -387,25 +389,26 @@ satisfied( char		*sfactors[], char *rfactors )
 			 * This is a dependent (parasitic) factor. Reauth the
 			 * the factor it's dependent on.
 			 */
-			req_more_auth = 1;
+			rc |= COSIGN_FACTOR_REAUTH_FLAG;
 			break;
 		    }
 
-		    if ( req_more_auth ) {
+		    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 			break;
 		    }
 		}
 	    }
-	    if ( sfactors[ i ] == NULL || req_more_auth ) {
+	    if ( sfactors[ i ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 		break;
 	    }
 	}
 	free( require );
 	if ( r != NULL ) {
-	    return( 0 );
+	    return( rc );
 	}
     }
-    return( 1 );
+    rc |= COSIGN_FACTOR_SATISFIED_FLAG;
+    return( rc );
 }
 
     static int
@@ -789,12 +792,16 @@ main( int argc, char *argv[] )
 	}
 
 	/*
-	 * We don't decide exactly what factors to put in SL_RFACTOR unitl
+	 * We don't decide exactly what factors to put in SL_RFACTOR until
 	 * just before returning the login page, so it's A-OK to handle user
 	 * and required factors separately.
 	 */
 	if ( !satisfied( ui.ui_factors, ufactors ) ||
-		!satisfied( ui.ui_factors, rfactors )) {
+		(!( rc = satisfied( ui.ui_factors, rfactors )) ||
+		COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
+	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+		scookie->sl_flag |= SL_REAUTH;
+	    } 
 	    sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
 	    goto loginscreen;
 	}
@@ -1107,7 +1114,11 @@ loggedin:
     ufactors = getuserfactors( userfactorpath, ui.ui_login );
 
     if ( !satisfied( ui.ui_factors, ufactors ) ||
-	    !satisfied( ui.ui_factors, rfactors )) {
+	    (!(rc = satisfied( ui.ui_factors, rfactors )) ||
+	    COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
+	if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	    reauth = 1;
+	}
 	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
 	goto loginscreen;
     }
