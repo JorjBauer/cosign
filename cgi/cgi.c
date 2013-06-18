@@ -54,8 +54,8 @@ char		*loop_page = _COSIGN_LOOP_URL;
 int		krbtkts = 0;
 SSL_CTX 	*ctx = NULL;
 
-char			*new_factors[ COSIGN_MAXFACTORS ];
 char			*script;
+char			*nfactorv[ COSIGN_MAXFACTORS ];
 struct userinfo		ui;
 struct subparams	sp;
 
@@ -218,6 +218,7 @@ kcgi_configure()
     }
 }
 
+/* XXX */
     static char *
 smash( char *av[] )
 {
@@ -240,6 +241,59 @@ smash( char *av[] )
 	strcat( smashtext, av[ i ] );
     }
     return( smashtext );
+}
+
+    static char *
+doublesmash( char *v1[], char *v2[] )
+{
+    char	*mergev[ COSIGN_MAXFACTORS ];
+    int		i, j;
+
+    for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
+	mergev[ i ] = v1[ i ];
+    }
+
+    for ( j = 0; v2[ j ] != NULL; j++ ) {
+	for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
+	    if ( mergev[ i ] == NULL ) {
+		mergev[ i ] = v2[ j ];
+		mergev[ i + 1 ] = NULL;
+		break;
+	    }
+	    if ( strcmp( v2[ j ], mergev[ i ] ) == 0 ) {
+		break;
+	    }
+	}
+    }
+    return( smash( mergev ));
+}
+
+    static void
+unsmash( char *factors, char *factorv[] )
+{
+    char	*last, *p, *q;
+    int		i;
+
+    factorv[ 0 ] = NULL;
+    if ( factors == NULL ) {
+	return;
+    }
+    p = strdup( factors );
+    for ( q = strtok_r( p, ",", &last ); q != NULL;
+	    q = strtok_r( NULL, ",", &last )) {
+	for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
+	    if ( factorv[ i ] == NULL ) {
+		factorv[ i ] = strdup( q );
+		factorv[ i + 1 ] = NULL;
+		break;
+	    }
+	    if ( strcmp( factorv[ i ], q ) == 0 ) {
+		break;
+	    }
+	}
+    }
+    free( p );
+    return;
 }
 
 /*
@@ -363,47 +417,41 @@ match_factor( char *required, char *satisfied, char *suffix )
 #define COSIGN_FACTOR_REAUTH_REQUIRED(x) \
 	(((x) & COSIGN_FACTOR_REAUTH_FLAG ))
     static int
-satisfied( char		*sfactors[], char *rfactors )
+satisfied( char		*sv[], char *rv[] )
 {
-    char		*require, *reqp, *r;
-    int			i;
+    int			i, j;
     int			rc = 0;
 
-    if ( rfactors != NULL ) {
-	require = strdup( rfactors );
-	for ( r = strtok_r( require, ",", &reqp ); r != NULL;
-		r = strtok_r( NULL, ",", &reqp )) {
-	    for ( i = 0; sfactors[ i ] != NULL; i++ ) {
-		if ( match_factor( r, sfactors[ i ], suffix )) {
+    for ( i = 0; sv[ i ] != NULL; i++ ) {
+	for ( j = 0; sv[ j ] != NULL; j++ ) {
+	    if ( match_factor( rv[ i ], sv[ i ], suffix )) {
+		break;
+	    }
+
+	    if ( parasitic_suffix ) {
+		switch ( match_factor( rv[ i ], sv[ i ],
+			    parasitic_suffix )) {
+		case kSATISFIED:
+		    break;
+
+		case kSUBSTITUTED_REV:
+		    /*
+		     * This is a dependent (parasitic) factor. Reauth the
+		     * the factor it's dependent on.
+		     */
+		    rc |= COSIGN_FACTOR_REAUTH_FLAG;
 		    break;
 		}
 
-		if ( parasitic_suffix ) {
-		    switch ( match_factor( r, sfactors[ i ],
-				parasitic_suffix )) {
-		    case kSATISFIED:
-			break;
-
-		    case kSUBSTITUTED_REV:
-			/*
-			 * This is a dependent (parasitic) factor. Reauth the
-			 * the factor it's dependent on.
-			 */
-			rc |= COSIGN_FACTOR_REAUTH_FLAG;
-			break;
-		    }
-
-		    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
-			break;
-		    }
+		if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+		    break;
 		}
 	    }
-	    if ( sfactors[ i ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
-		break;
-	    }
 	}
-	free( require );
-	if ( r != NULL ) {
+	if ( sv[ i ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	    break;
+	}
+	if ( rv[ i ] != NULL ) {
 	    return( rc );
 	}
     }
@@ -458,8 +506,8 @@ main( int argc, char *argv[] )
     char        		new_cookie[ 255 ];
     char			new_scookie[ 255 ];
     char			*data, *ip_addr, *tmpl = NULL, *server_name;
-    char			*cookie = NULL, *method, *qs, *misc = NULL;
-    char			*rfactors = NULL, *ufactors = NULL, *p;
+    char			*cookie = NULL, *method, *qs;
+    char			*misc = NULL, *p;
     char			*ref = NULL, *service = NULL, *login = NULL;
     char			*remote_user = NULL;
     char			*subject_dn = NULL, *issuer_dn = NULL;
@@ -467,6 +515,9 @@ main( int argc, char *argv[] )
     char			*realm = NULL, *krbtkt_path = NULL;
     char			*auth_type = NULL;
     char			**ff, *msg = NULL;
+    char			*rfactors = NULL, *ufactors;
+    char			*rfactorv[ COSIGN_MAXFACTORS ];
+    char			*ufactorv[ COSIGN_MAXFACTORS ];
     struct servicelist		*scookie = NULL;
     struct factorlist		*fl;
     struct timeval		tv;
@@ -590,17 +641,9 @@ main( int argc, char *argv[] )
 	    p = strtok( NULL, "&" );
 	}
 
-	// XXX comma separated list of required factors
+	// comma separated list of required factors
 	if ( p != NULL && strncmp( p, "factors=", 8 ) == 0 ) {
-	    if (( rfactors = strchr( p, '=' )) == NULL ) {
-		sl[ SL_TITLE ].sl_data = "Error: malformatted factors";
-		sl[ SL_ERROR ].sl_data = "Unable to determine required "
-			"factors from query string.";
-		subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 400 );
-		exit( 0 );
-	    }
-	    rfactors++;
-	    sl[ SL_RFACTOR ].sl_data = rfactors;
+	    rfactors = sl[ SL_RFACTOR ].sl_data = p + 8;
 	    p = strtok( NULL, "&" );
 	}
 
@@ -771,8 +814,6 @@ main( int argc, char *argv[] )
 	    goto loginscreen;
 	}
 
-	ufactors = getuserfactors( userfactorpath, ui.ui_login );
-
 	if ( rfactors != NULL ) {
 	    if ( parasitic_suffix ) {
 		if ( factor_set_dependencies( scookie,
@@ -791,13 +832,17 @@ main( int argc, char *argv[] )
 	    }
 	}
 
+	ufactors = getuserfactors( userfactorpath, ui.ui_login );
+
 	/*
 	 * We don't decide exactly what factors to put in SL_RFACTOR until
 	 * just before returning the login page, so it's A-OK to handle user
 	 * and required factors separately.
 	 */
-	if ( !satisfied( ui.ui_factors, ufactors ) ||
-		(!( rc = satisfied( ui.ui_factors, rfactors )) ||
+	unsmash( ufactors, ufactorv );
+	unsmash( rfactors, rfactorv );
+	if ( !satisfied( ui.ui_factors, ufactorv ) ||
+		(!( rc = satisfied( ui.ui_factors, rfactorv )) ||
 		COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
 	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 		scookie->sl_flag |= SL_REAUTH;
@@ -1003,12 +1048,12 @@ loggedin:
 	/* If we just received any new factors, and they match any of our 
 	 * suffix factors, then we want to do proxy login for those creds
 	 * as well. This grants "real" factors for parasitic factors... */
-	for ( i=0; new_factors[ i ] != NULL; i++ ) {
+	for ( i=0; nfactorv[ i ] != NULL; i++ ) {
 	    for ( subst_factor = strtok( sl[ SL_RFACTOR ].sl_data, ",");
 		      subst_factor;
 		      subst_factor = strtok( NULL, "," ) ) {
 		switch ( match_factor( subst_factor, 
-				       new_factors[ i ],
+				       nfactorv[ i ],
 				       parasitic_suffix ) ) {
 		case kSUBSTITUTED_REV:
 		    if ( cosign_login( head,
@@ -1038,6 +1083,7 @@ loggedin:
      * compare factor form fields with posted form fields, call
      * authenticators accordingly.
      */
+    nfactorv[ 0 ] = NULL;
     for ( fl = factorlist; fl != NULL; fl = fl->fl_next ) {
 	for ( ff = fl->fl_formfield; *ff != NULL; ff++ ) {
 	    for ( i = 0; cl[ i ].cl_key != NULL; i++ ) {
@@ -1072,12 +1118,12 @@ loggedin:
 	}
 
 	for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
-	    if ( new_factors[ i ] == NULL ) {
-		new_factors[ i ] = strdup( msg );
-		new_factors[ i + 1 ] = NULL;
+	    if ( nfactorv[ i ] == NULL ) {
+		nfactorv[ i ] = strdup( msg );
+		nfactorv[ i + 1 ] = NULL;
 		break;
 	    }
-	    if ( strcmp( new_factors[ i ], msg ) == 0 ) {
+	    if ( strcmp( nfactorv[ i ], msg ) == 0 ) {
 		break;
 	    }
 	}
@@ -1113,8 +1159,10 @@ loggedin:
 
     ufactors = getuserfactors( userfactorpath, ui.ui_login );
 
-    if ( !satisfied( ui.ui_factors, ufactors ) ||
-	    (!(rc = satisfied( ui.ui_factors, rfactors )) ||
+    unsmash( ufactors, ufactorv );
+    unsmash( rfactors, rfactorv );
+    if ( !satisfied( ui.ui_factors, ufactorv ) ||
+	    (!(rc = satisfied( ui.ui_factors, rfactorv )) ||
 	    COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
 	if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	    reauth = 1;
@@ -1180,12 +1228,12 @@ loggedin:
 	 */
 	if ( scookie->sl_flag & SL_REAUTH ) {
 	    if ( scookie->sl_factors[ 0 ] == NULL &&
-		    new_factors[ 0 ] == NULL ) {
+		    nfactorv[ 0 ] == NULL ) {
 		sl[ SL_ERROR ].sl_data = "Please complete any field"
 			" to re-authenticate.";
 		goto loginscreen;
 	    }
-	    if ( !satisfied( scookie->sl_factors, smash( new_factors ))) {
+	    if ( !satisfied( scookie->sl_factors, nfactorv )) {
 		sl[ SL_ERROR ].sl_data = "Please complete all required"
 			" fields to re-authenticate.";
 		goto loginscreen;
@@ -1350,7 +1398,7 @@ loginscreen:
 	     * contain ufactors and rfactors.
 	     */
 	    sl[ SL_DFACTOR ].sl_data = smash( ui.ui_factors );
-	    sl[ SL_RFACTOR ].sl_data = rfactors;
+	    sl[ SL_RFACTOR ].sl_data = doublesmash( rfactorv, ufactorv );
 	    tmpl = LOGIN_ERROR_HTML;
 	}
     }

@@ -21,6 +21,8 @@
 #include "conf.h"
 #include "factor.h"
 
+extern int	httponly_cookies;
+
     int
 execfactor( struct factorlist *fl, struct cgi_list cl[], char *login,
 	char **msg )
@@ -95,8 +97,12 @@ execfactor( struct factorlist *fl, struct cgi_list cl[], char *login,
     tv.tv_sec = 10;
     tv.tv_usec = 0;
     while (( line = snet_getline( sn_r, &tv )) != NULL ) {
-	strncpy( prev, line, sizeof( prev ));
-	prev[ sizeof( prev ) - 1 ] = '\0';
+	if ( strchr( line, '=' ) == NULL ) {
+	    strncpy( prev, line, sizeof( prev ));
+	    prev[ sizeof( prev ) - 1 ] = '\0';
+	} else {
+	    printf( "Set-Cookie: %s; path=/; secure\n", line );
+	}
     }
     if ( errno == ETIMEDOUT ) {
 	kill( pid, SIGKILL );
