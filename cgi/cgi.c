@@ -424,12 +424,12 @@ satisfied( char		*sv[], char *rv[] )
 
     for ( i = 0; rv[ i ] != NULL; i++ ) {
 	for ( j = 0; sv[ j ] != NULL; j++ ) {
-	    if ( match_factor( rv[ i ], sv[ i ], suffix )) {
+	    if ( match_factor( rv[ i ], sv[ j ], suffix )) {
 		break;
 	    }
 
 	    if ( parasitic_suffix ) {
-		switch ( match_factor( rv[ i ], sv[ i ],
+		switch ( match_factor( rv[ i ], sv[ j ],
 			    parasitic_suffix )) {
 		case kSATISFIED:
 		    break;
@@ -448,12 +448,12 @@ satisfied( char		*sv[], char *rv[] )
 		}
 	    }
 	}
-	if ( sv[ i ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	if ( sv[ j ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	    break;
 	}
-	if ( rv[ i ] != NULL ) {
-	    return( rc );
-	}
+    }
+    if ( rv[ i ] != NULL ) {
+	return( rc );
     }
     rc |= COSIGN_FACTOR_SATISFIED_FLAG;
     return( rc );
