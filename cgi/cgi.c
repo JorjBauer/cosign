@@ -422,7 +422,7 @@ satisfied( char		*sv[], char *rv[] )
     int			i, j;
     int			rc = 0;
 
-    for ( i = 0; sv[ i ] != NULL; i++ ) {
+    for ( i = 0; rv[ i ] != NULL; i++ ) {
 	for ( j = 0; sv[ j ] != NULL; j++ ) {
 	    if ( match_factor( rv[ i ], sv[ i ], suffix )) {
 		break;
@@ -757,7 +757,7 @@ main( int argc, char *argv[] )
 	    exit( 0 );
 	}
 
-	    if (( p = strchr( service, '=' )) == NULL ) {
+	if (( p = strchr( service, '=' )) == NULL ) {
 	    scheme = 3;
 	    scookie = service_find( service, matches, nmatch );
 	} else {
