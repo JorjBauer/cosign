@@ -1402,6 +1402,8 @@ loginscreen:
 	     * contain ufactors and rfactors.
 	     */
 	    sl[ SL_DFACTOR ].sl_data = smash( ui.ui_factors );
+
+	    unsmash( rfactors, rfactorv );
 	    sl[ SL_RFACTOR ].sl_data = doublesmash( rfactorv, ufactorv );
 	    tmpl = LOGIN_ERROR_HTML;
 	}
