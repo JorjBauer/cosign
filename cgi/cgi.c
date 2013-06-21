@@ -1117,6 +1117,10 @@ loggedin:
 	    goto loginscreen;
 	}
 
+	if ( msg == NULL || *msg == '\0' ) {
+	    continue;
+	}
+
 	for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
 	    if ( nfactorv[ i ] == NULL ) {
 		nfactorv[ i ] = strdup( msg );
