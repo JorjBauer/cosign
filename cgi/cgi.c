@@ -246,7 +246,7 @@ smash( char *av[] )
     static char *
 doublesmash( char *v1[], char *v2[] )
 {
-    char	*mergev[ COSIGN_MAXFACTORS ];
+    char	*mergev[ COSIGN_MAXFACTORS ] = { NULL };
     int		i, j;
 
     for ( i = 0; i < COSIGN_MAXFACTORS - 1; i++ ) {
@@ -515,9 +515,9 @@ main( int argc, char *argv[] )
     char			*realm = NULL, *krbtkt_path = NULL;
     char			*auth_type = NULL;
     char			**ff, *msg = NULL;
-    char			*rfactors = NULL, *ufactors;
-    char			*rfactorv[ COSIGN_MAXFACTORS ];
-    char			*ufactorv[ COSIGN_MAXFACTORS ];
+    char			*rfactors = NULL, *ufactors = NULL;
+    char			*rfactorv[ COSIGN_MAXFACTORS ] = { NULL };
+    char			*ufactorv[ COSIGN_MAXFACTORS ] = { NULL };
     struct servicelist		*scookie = NULL;
     struct factorlist		*fl;
     struct timeval		tv;
