@@ -1161,7 +1161,10 @@ loggedin:
 	goto loginscreen;
     }
 
-    ufactors = getuserfactors( userfactorpath, ui.ui_login );
+    /* ensure we call getuserfactors only once */
+    if ( ufactors == NULL ) {
+	ufactors = getuserfactors( userfactorpath, ui.ui_login );
+    }
 
     unsmash( ufactors, ufactorv );
     unsmash( rfactors, rfactorv );
