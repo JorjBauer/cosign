@@ -677,6 +677,13 @@ main( int argc, char *argv[] )
     }
 
     if (( data = getenv( "HTTP_COOKIE" )) != NULL ) {
+	/* use a copy, so factor subprocesses get an unmodified original */
+	if (( cookie = strdup( data )) == NULL ) {
+	    fprintf( stderr, "Warning: strdup HTTP_COOKIE failed, using "
+			    "raw environment variable...\n" );
+	} else {
+	    data = cookie;
+	}
 	for ( cookie = strtok( data, ";" ); cookie != NULL;
 		cookie = strtok( NULL, ";" )) {
 	    while ( *cookie == ' ' ) ++cookie;
