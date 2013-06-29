@@ -98,11 +98,14 @@ execfactor( struct factorlist *fl, struct cgi_list cl[], char *login,
     tv.tv_sec = 10;
     tv.tv_usec = 0;
     while (( line = snet_getline( sn_r, &tv )) != NULL ) {
+fprintf( stderr, "ADMORTEN DEBUG: factor %s returned output line: %s\n",
+		fl->fl_path, line ); 
 	if ( strchr( line, '=' ) == NULL ) {
 	    strncpy( prev, line, sizeof( prev ));
 	    prev[ sizeof( prev ) - 1 ] = '\0';
 	} else {
-	    printf( "Set-Cookie: %s; path=/; secure\n", line );
+	    printf( "Set-Cookie: %s; path=/; secure%s\n",
+		    line, httponly_cookies ? "; httponly" : "" );
 	}
     }
     if ( errno == ETIMEDOUT ) {

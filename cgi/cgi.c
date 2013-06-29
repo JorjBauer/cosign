@@ -52,6 +52,7 @@ char		*cadir = _COSIGN_TLS_CADIR;
 char		*tmpldir = _COSIGN_TMPL_DIR;
 char		*loop_page = _COSIGN_LOOP_URL;
 int		krbtkts = 0;
+int		httponly_cookies = 1;
 SSL_CTX 	*ctx = NULL;
 
 char			*script;
@@ -144,7 +145,8 @@ loop_checker( int time, int count, char *cookie )
 	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	    exit( 0 );
 	}
-	printf( "Set-Cookie: %s; path=/; secure\n", new_cookie );
+	printf( "Set-Cookie: %s; path=/; secure%s\n",
+		new_cookie, httponly_cookies ? "; httponly" : "" );
 	return;
     }
 
@@ -172,7 +174,8 @@ loop_checker( int time, int count, char *cookie )
 	subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
 	exit( 0 );
     }
-    printf( "Set-Cookie: %s; path=/; secure\n", new_cookie );
+    printf( "Set-Cookie: %s; path=/; secure%s\n",
+	    new_cookie, httponly_cookies ? "; httponly" : "" );
     return;
 }
 
@@ -215,6 +218,11 @@ kcgi_configure()
 	cosign_port = htons( atoi( val ));
     } else {
 	cosign_port = htons( 6663 );
+    }
+    if (( val = cosign_config_get( COSIGNHTTPONLYCOOKIESKEY )) != NULL ) {
+        if ( strcasecmp( val, "on" ) == 0 ) {
+            httponly_cookies = 1;
+        }
     }
 }
 
