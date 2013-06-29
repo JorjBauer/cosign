@@ -222,24 +222,34 @@ kcgi_configure()
     static char *
 smash( char *av[] )
 {
-    static char	smashtext[ 1024 ];
-    int		i;
+    char	*smashtext = NULL;
+    int		flens[ COSIGN_MAXFACTORS ] = { 0 };
+    int		i, len = 0;
     
-    if ( av[ 0 ] == NULL ) {
+    if ( av == NULL || av[ 0 ] == NULL ) {
 	return( NULL );
     }
-    if ( strlen( av[ 0 ] ) + 1 > sizeof( smashtext )) {
+
+    for ( i = 0; i < COSIGN_MAXFACTORS && av[ i ] != NULL; i++ ) {
+	flens[ i ] = strlen( av[ i ] );
+
+	/* +1 for "," separator or nul terminator */
+	len += flens[ i ] + 1;
+    }
+
+    if (( smashtext = (char *)malloc( len )) == NULL ) {
+	perror( "malloc smashtext" );
 	return( NULL );
     }
+
     strcpy( smashtext, av[ 0 ] );
-    for ( i = 1; av[ i ] != NULL; i++ ) {
-	if ( strlen( av[ i ] ) + 1 + 1 >
-		sizeof( smashtext ) - strlen( smashtext )) {
-	    return( NULL );
-	}
-	strcat( smashtext, "," );
-	strcat( smashtext, av[ i ] );
+    for ( i = 1, len = flens[ 0 ]; av[ i ] != NULL; i++ ) {
+	strcpy( smashtext + len, "," );
+	strcpy( smashtext + len + 1, av[ i ] );
+
+	len += flens[ i ] + 1;
     }
+
     return( smashtext );
 }
 
