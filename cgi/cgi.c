@@ -1405,8 +1405,8 @@ loginscreen:
 		/*
 		 * Might be better to let the user pick a factor.
 		 */
-		//sl[ SL_RFACTOR ].sl_data = ui.ui_factors[ 0 ];
-		sl[ SL_RFACTOR ].sl_data = rfactors;
+		sl[ SL_RFACTOR ].sl_data = ui.ui_factors[ 0 ];
+
 	    }
 
 	    sl[ SL_TITLE ].sl_data = "Re-Authentication Required";
