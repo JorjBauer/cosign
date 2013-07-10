@@ -1193,9 +1193,11 @@ loggedin:
 
     unsmash( ufactors, ufactorv );
     unsmash( rfactors, rfactorv );
-    if ( !satisfied( ui.ui_factors, ufactorv ) ||
-	    (!(rc = satisfied( ui.ui_factors, rfactorv )) ||
-	    COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
+    if ( !satisfied( ui.ui_factors, ufactorv )) {
+	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
+	goto loginscreen_moreauth;
+    } else if ( !(rc = satisfied( ui.ui_factors, rfactorv )) ||
+	    COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	    reauth = 1;
 	}
@@ -1424,6 +1426,7 @@ loginscreen:
 	    }
 	    tmpl = REAUTH_HTML;
 	} else {
+loginscreen_moreauth:
 	    /*
 	     * XXX
 	     * For the sake of the user interface, we'd like SL_RFACTORS to
