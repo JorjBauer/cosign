@@ -1018,6 +1018,8 @@ main( int argc, char *argv[] )
 	sp.sp_ipchanged = 1;
     }
 
+    nfactorv[ 0 ] = NULL;
+
 #if defined( SQL_FRIEND ) || defined( KRB )
     if ( cl[ CL_PASSWORD ].cl_data != NULL ) {
 	struct matchlist *pos = NULL;
@@ -1108,7 +1110,6 @@ loggedin:
      * compare factor form fields with posted form fields, call
      * authenticators accordingly.
      */
-    nfactorv[ 0 ] = NULL;
     for ( fl = factorlist; fl != NULL; fl = fl->fl_next ) {
 	for ( ff = fl->fl_formfield; *ff != NULL; ff++ ) {
 	    for ( i = 0; cl[ i ].cl_key != NULL; i++ ) {
