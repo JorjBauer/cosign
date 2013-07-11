@@ -1268,7 +1268,7 @@ loggedin:
 			" to re-authenticate.";
 		goto loginscreen;
 	    }
-	    if ( !satisfied( scookie->sl_factors, nfactorv )) {
+	    if ( !satisfied( nfactorv, scookie->sl_factors )) {
 		sl[ SL_ERROR ].sl_data = "Please complete all required"
 			" fields to re-authenticate.";
 		goto loginscreen;
