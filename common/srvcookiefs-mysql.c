@@ -1242,7 +1242,7 @@ cookiedb_mysql_idle_out_factors( char lcookie[255], char factor[256],
   int delete_it = 0;
   const char *select_template = 
       "SELECT factor,timestamp FROM factor_timeouts "
-      " WHERE login_cookie=? AND factor=?";
+      " WHERE factor=? AND login_cookie=?";
   const char *delete_template = 
       "DELETE FROM factor_timeouts WHERE factor=? AND login_cookie=?";
   MYSQL_STMT *q = NULL;
@@ -1289,7 +1289,7 @@ cookiedb_mysql_idle_out_factors( char lcookie[255], char factor[256],
   }
 
   if ( mysql_stmt_fetch( q ) == 0 ) {
-    if ( timestamp_result < time(NULL) - secs ) {
+    if ((int)timestamp_result < (int)(time(NULL) - secs )) {
       delete_it = ret = 1;
     }
   }
