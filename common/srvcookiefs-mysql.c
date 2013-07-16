@@ -488,7 +488,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
   const char *read_template = "SELECT ci_itime, ci_state, ci_version, "
     "ci_ipaddr,ci_ipaddr_cur,ci_user,ci_ctime,ci_krbtkt "
     " FROM login_cookies WHERE login_cookie=?";
-  const char *read_factor_template = "SELECT factor "
+  const char *read_factor_template = "SELECT factor,timestamp "
       "FROM factor_timeouts "
       "WHERE login_cookie=?";
   int sz, left, fr, rows;
@@ -506,7 +506,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
   unsigned long user_result_length;
   unsigned long ctime_result_length;
   unsigned long krbtkt_result_length;
-  MYSQL_BIND factor_result[ 1 ];
+  MYSQL_BIND factor_result[ 2 ];
   char a_factor[ 256 ];
   unsigned long factor_result_length;
 
@@ -584,6 +584,7 @@ cookiedb_mysql_read( char cookie[255], struct cinfo *ci )
 
   memset( factor_result, 0, sizeof( factor_result ) );
   BIND_STRING( factor_result[ 0 ], a_factor, sizeof( a_factor ), factor_result_length );
+  BIND_LONG( factor_result[ 1 ], itime_result );    
 
   if ( mysql_stmt_bind_result( q, factor_result ) != 0 ) {
       syslog( LOG_ERR, "cookiedb_mysql_read: mysql_stmt_bind_result failed" );
