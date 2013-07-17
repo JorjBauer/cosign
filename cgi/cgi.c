@@ -824,21 +824,6 @@ main( int argc, char *argv[] )
 	    goto loginscreen;
 	}
 
-	if ( reauth ) {
-	    scookie->sl_flag |= SL_REAUTH;
-	}
-
-	if ( !rebasic ) {
-	    if ( scookie->sl_flag & SL_REAUTH ) {
-		/* ui struct populated by cosign_check if good cookie */
-		goto loginscreen;
-	    }
-	}
-
-	if ( strcmp( ui.ui_ipaddr, ip_addr ) != 0 ) {
-	    goto loginscreen;
-	}
-
 	if ( rfactors != NULL ) {
 	    if ( parasitic_suffix ) {
 		if ( factor_set_dependencies( scookie,
@@ -858,6 +843,21 @@ main( int argc, char *argv[] )
 	}
 
 	ufactors = getuserfactors( userfactorpath, ui.ui_login );
+
+	if ( reauth ) {
+	    scookie->sl_flag |= SL_REAUTH;
+	}
+
+	if ( !rebasic ) {
+	    if ( scookie->sl_flag & SL_REAUTH ) {
+		/* ui struct populated by cosign_check if good cookie */
+		goto loginscreen;
+	    }
+	}
+
+	if ( strcmp( ui.ui_ipaddr, ip_addr ) != 0 ) {
+	    goto loginscreen;
+	}
 
 	/*
 	 * We don't decide exactly what factors to put in SL_RFACTOR until
@@ -1194,16 +1194,16 @@ loggedin:
 
     unsmash( ufactors, ufactorv );
     unsmash( rfactors, rfactorv );
-    if ( !satisfied( ui.ui_factors, ufactorv )) {
-	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
-	goto loginscreen_moreauth;
-    } else if ( !(rc = satisfied( ui.ui_factors, rfactorv )) ||
+    if ( !(rc = satisfied( ui.ui_factors, rfactorv )) ||
 	    COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	    reauth = 1;
 	}
 	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
 	goto loginscreen;
+    } else if ( !satisfied( ui.ui_factors, ufactorv )) {
+	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
+	goto loginscreen_moreauth;
     }
 
     if ( service != NULL && ref != NULL ) {
