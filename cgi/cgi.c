@@ -842,6 +842,13 @@ main( int argc, char *argv[] )
 	    }
 	}
 
+	/* we've found a matching service, export it to COSIGN_SERVICE */
+	if ( setenv( "COSIGN_SERVICE", service, 1 ) != 0 ) {
+	    fprintf( stderr, "failed to export COSIGN_SERVICE\n" );
+
+	    /* XXX but fall through anyway? */
+	}
+
 	ufactors = getuserfactors( userfactorpath, ui.ui_login );
 
 	if ( reauth ) {
@@ -990,6 +997,23 @@ main( int argc, char *argv[] )
     if ( cl[ CL_SERVICE ].cl_data != NULL ) {
 	service = sp.sp_service =
 		sl[ SL_SERVICE ].sl_data = cl[ CL_SERVICE ].cl_data;
+
+	scookie = service_find( service, matches, nmatch );
+	if ( scookie == NULL ) {
+	    fprintf( stderr, "no matching service for %s\n", service );
+	    sl[ SL_TITLE ].sl_data = "Error: Unknown service";
+	    sl[ SL_ERROR ].sl_data = "We were unable to locate a "
+		    "service matching the one provided.";
+	    subfile( ERROR_HTML, sl, SUBF_OPT_SETSTATUS, 500 );
+	    exit( 0 );
+	}
+
+	/* we've found a matching service, export it to COSIGN_SERVICE */
+        if ( setenv( "COSIGN_SERVICE", service, 1 ) != 0 ) {
+            fprintf( stderr, "failed to export COSIGN_SERVICE\n" );
+
+            /* XXX but fall through anyway? */
+        }
     }
     if ( cl[ CL_RFACTOR ].cl_data != NULL ) {
 	rfactors = sp.sp_factor =
