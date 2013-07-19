@@ -122,42 +122,6 @@ int	ncommands = sizeof( unauth_commands ) / sizeof(unauth_commands[ 0 ] );
 
 extern struct cfs_funcs *cookiefs;
 
-    static int
-remove_imploded_element( char *in, int sz, char *to_remove )
-{
-  char *buf = malloc( sz );
-  char *obuf = buf;
-  int len;
-  char *tok = NULL;
-
-  if ( buf == NULL ) {
-    perror( "malloc" );
-    return( -1 );
-  }
-  char *p;
-
-  for ( p = strtok_r( in, " ", &tok );
-	p != NULL;
-	p = strtok_r( NULL, " ", &tok ) ) {
-    if ( strcmp( p, to_remove ) ) {
-      /* Add it to the output list (with a leading space if we've already added
-       * something to the output list) */
-      len = snprintf( buf, sz, "%s%s", obuf == buf ? "" : " ", p );
-      if ( len >= sz ) {
-	free( buf );
-	syslog( LOG_ERR, 
-		"remove_imploded_element: insufficient buffer space" );
-	return( -1 );
-      }
-      buf += len;
-      sz -= len;
-    }
-  }
-
-  strcpy( in, obuf );
-  free( obuf );
-  return( 0 );
-}
 
     int
 f_quit( SNET *sn, int ac, char *av[], SNET *pushersn )
@@ -878,24 +842,25 @@ service_valid_done:
     int
 f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
 {
+    ACAV		*factor_acav = NULL;
     struct cinfo 	ci;
     struct timeval	tv;
     char		login[ MAXCOOKIELEN ], lookup[ MAXCOOKIELEN ];
     char		rekeybuf[ 128 ], rcookie[ 256 ];
     char		*p;
-    int			status, i;
+    int			status, i, j;
     double		rate;
     struct idlelist	*il;
     int			did_il;
     int			result;
     char                allowed_factors[ 256 ];
-    char                *a_factor;
     struct privatizationlist   *pl;
     regex_t             preg;
     char                buf[ 1024 ];
     regmatch_t          svm[ 2 ];
     int                 rc;
-    char                *tok;
+    int			f_ac;
+    char		**f_av = NULL;
 
     /*
      * C: CHECK servicecookie [FACTORLIST] [ "rekey" ]
@@ -1059,55 +1024,104 @@ f_check( SNET *sn, int ac, char *av[], SNET *pushersn )
      * any privatized factors. Leave the list of factors (to be returned 
      * to the filter that's querying us) in allowed_factors when done. 
      */
- rebuild_factors:
-    strncpy( allowed_factors, ci.ci_realm, sizeof( allowed_factors ) );
-    if ( strlen( allowed_factors ) != strlen( ci.ci_realm ) ) {
-      syslog( LOG_ERR, "f_check: insufficient buffer space for factor list" );
-      return( -1 );
+    if ( strlen( ci.ci_realm ) >= sizeof( allowed_factors )) {
+        syslog( LOG_ERR, "f_check: insufficient buffer space for factor list" );
+        return( -1 );
     }
 
-    tok = NULL;
+    if (( factor_acav = acav_alloc()) == NULL ) {
+	syslog( LOG_ERR, "f_check: acav_alloc failed: %m" );
+	return( -1 );
+    }
+    f_ac = acav_parse( factor_acav, ci.ci_realm, &f_av );
+
     for ( pl = privatizationlist; pl != NULL; pl = pl->pl_next ) {
-      for ( a_factor = strtok_r( ci.ci_realm, " ", &tok );
-	    a_factor != NULL;
-	    a_factor = strtok_r( NULL, " ", &tok ) ) {
-	if ( !strcmp( a_factor, pl->pl_factor ) ) {
-	  if (( rc = regcomp( &preg, pl->pl_regexp, REG_EXTENDED )) != 0 ) {
+	for ( i = 0; i < f_ac; i++ ) {
+	    if ( strcmp( f_av[ i ], pl->pl_factor ) == 0 ) {
+		break;
+	    }
+	}
+	if ( i >= f_ac ) {
+	    /* no matching authenticated factor */
+	    continue;
+	}
+
+	if (( rc = regcomp( &preg, pl->pl_regexp, REG_EXTENDED )) != 0 ) {
 	    regerror( rc, &preg, buf, sizeof( buf ));
 	    syslog( LOG_ERR, "f_check: regcomp %s: %s",
 		    pl->pl_regexp, buf );
-	    return( -1 );
-	  }
-	  if (( rc = regexec( &preg, remote_cn, 2, svm, 0 ) ) != 0 ) {
-	    if ( rc == REG_NOMATCH ) {
-		/* If the service has provided that it's interested in this 
-		 * factor, we can trip an error. */
-		if ( status == 231 ) {
-		    for ( i=2; i<ac; i++ ) {
-			if ( strcmp( av[ i ], a_factor ) == 0 ) {
-			    syslog( LOG_ERR,
-				    "access to factor %s forbidden "
-				    "for service %s",
-				    a_factor, remote_cn );
-			    snet_writef( sn, 
-					 "%d CHECK: no permission for "
-					 "%s from %s\r\n",
-					 433, a_factor, remote_cn );
-			    return( 1 );
-			}
-		    }
-		}
 
-		if ( remove_imploded_element( ci.ci_realm,
-					      sizeof( ci.ci_realm ), 
-					      a_factor ) ) {
-		    return( -1 );
-		}
-		goto rebuild_factors;
-	    }
-	  }
+	    snet_writef( sn, "%d Internal server error\r\n", 533 );
+
+	    acav_free( factor_acav );
+	    return( -1 );
 	}
-      }
+
+	rc = regexec( &preg, remote_cn, 2, svm, 0 );
+	if ( rc == 0 ) {
+	    /* client allowed to know about this factor */
+	    continue;
+	} else if ( rc != REG_NOMATCH ) {
+	    regerror( rc, &preg, buf, sizeof( buf ));
+	    syslog( LOG_ERR, "f_check: regexec %s against %s: %s",
+		    pl->pl_regexp, remote_cn, buf );
+
+	    snet_writef( sn, "%d Internal server error\r\n", 533 );
+
+	    acav_free( factor_acav );
+	    return( 1 );
+	}
+
+	for ( j = 2; j < ac; j++ ) {
+	    if ( strcmp( av[ j ], pl->pl_factor ) == 0 ) {
+		/* service wants this factor but can't have it */
+		syslog( LOG_ERR, "Factor %s forbidden to service %s",
+			pl->pl_factor, remote_cn );
+
+		snet_writef( sn, "%d Access to %s denied\r\n",
+			    433, pl->pl_factor );
+
+		acav_free( factor_acav );
+		return( 1 );
+	    }
+	}
+
+	f_ac--;
+
+	for ( ; i < f_ac; i++ ) {
+	    f_av[ i ] = f_av[ i + 1 ];
+	}
+    }
+
+    if ( f_ac <= 0 ) {
+	syslog( LOG_ERR, "f_check: %s: No allowed factors!", remote_cn );
+
+	snet_writef( sn, "%d Forbidden\r\n", 433 );
+
+	acav_free( factor_acav );
+	return( 1 );
+    }
+
+    p = allowed_factors;
+    for ( i = 0; i < f_ac; i++ ) {
+	j = strlen( f_av[ i ] );
+	if (( j + (p - allowed_factors) + 1 ) >= sizeof( allowed_factors )) {
+	    syslog( LOG_ERR, "f_check: insufficient space to append factor "
+		    "%s to response", f_av[ i ] );
+	    
+	    snet_writef( sn, "%d Internal server error\r\n", 533 );
+
+	    acav_free( factor_acav );
+	    return( 1 );
+	}
+
+	strcpy( p, f_av[ i ] );
+	strcpy( p + j, " " );
+	p += ( j + 1 );
+    }
+
+    if ( factor_acav != NULL ) {
+	acav_free( factor_acav );
     }
 
     if ( status == 233 ) {
