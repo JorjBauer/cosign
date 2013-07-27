@@ -15,8 +15,10 @@
 #include <unistd.h>
 #include <time.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <openssl/ssl.h>
+#include <openssl/crypto.h>
 #include <snet.h>
 #include "cgi.h"
 #include "cosigncgi.h"
@@ -119,6 +121,119 @@ implode_factors( const char *in, char *out, int out_length )
 	p++;
     }
     return ( strlen( out ) == strlen( in ) );
+}
+
+#define REAUTH_TIMESTEP		(time_t)100
+    static char *
+reauth_hmac_sha1( char *service, char *ref, char *login,
+	char *ip_addr, char *key, time_t time_offset )
+{
+    HMAC_CTX		ctx;
+    const EVP_MD	*evp_md = EVP_sha1();
+    unsigned char	md[ EVP_MAX_MD_SIZE ];
+    static char		hmac_hex[ (EVP_MAX_MD_SIZE * 2) + 2 ];
+    const char		hextab[] = "0123456789abcdef";
+    time_t		timesteps;
+    char		*p;
+    unsigned int	len;
+    int			i;
+
+    assert( service != NULL && ref != NULL && login != NULL &&
+		ip_addr != NULL && key != NULL );
+
+    HMAC_CTX_init( &ctx );
+    HMAC_Init( &ctx, (const void *)key, strlen( key ), evp_md );
+
+    timesteps = (time( NULL ) - time_offset) / REAUTH_TIMESTEP;
+
+    HMAC_Update( &ctx, (const unsigned char *)&timesteps, sizeof( time_t ));
+    HMAC_Update( &ctx, (const unsigned char *)service, strlen( service ));
+    HMAC_Update( &ctx, (const unsigned char *)ref, strlen( ref ));
+    HMAC_Update( &ctx, (const unsigned char *)login, strlen( login ));
+    HMAC_Update( &ctx, (const unsigned char *)ip_addr, strlen( ip_addr ));
+
+    HMAC_Final( &ctx, md, &len );
+    HMAC_CTX_cleanup( &ctx );
+
+    p = hmac_hex;
+    for ( i = 0; i < len; i++ ) {
+	*p = hextab[ ((md[ i ] & 0xf0) >> 4) ];
+	*(p + 1) = hextab[ (md[ i ] & 0x0f) ];
+
+	p += 2;
+    } 
+    *p = '\0';
+
+    return( hmac_hex );
+}
+
+    static void
+reauth_cookie_set( char *reauth_cookie )
+{
+    time_t	exptime;
+    struct tm	*gmt = NULL;
+    char	expdate[ 64 ];
+
+    if ( reauth_cookie ) {
+	exptime = time( NULL ) + 300;
+	gmt = gmtime( &exptime );
+
+	if ( strftime( expdate, sizeof( expdate ),
+		    "%a, %e %b %Y %H:%M:%S GMT", gmt )) {
+	    printf( "Set-Cookie: cosign_reauth=%s; expires=%s; path=/; "
+			"secure; httponly\n", reauth_cookie, expdate );
+	}
+    } else {
+	printf( "Set-Cookie: cosign_reauth=null; "
+		"expires=Fri, 2 Jan 1970 00:00:00 GMT; "
+		"path=/; secure; httponly\n" );
+    }
+}
+
+    static int
+reauth_cookie_valid( char *service, char *ref, char *login,
+	char *ip_addr, char *key )
+{
+    char	*http_cookie;
+    char	*reauth_cookie;
+    char	*hmac_hex;
+    int		valid = 0;
+    time_t	time_offset;
+
+    if ( key == NULL ) {
+	return( 0 );
+    }
+
+    if (( http_cookie = getenv( "HTTP_COOKIE" )) == NULL ) {
+	return( 0 );
+    }
+
+    for ( reauth_cookie = strtok( http_cookie, ";" );
+	    reauth_cookie != NULL;
+	    reauth_cookie = strtok( NULL, ";" )) {
+	while ( *reauth_cookie == ' ' ) ++reauth_cookie;
+	if ( strncmp( reauth_cookie, "cosign_reauth=",
+		    strlen( "cosign_reauth=" )) == 0 ) {
+	    break;
+	}
+    }
+    if ( reauth_cookie == NULL ) {
+	return( 0 );
+    }
+    reauth_cookie += strlen( "cosign_reauth=" );
+
+    for ( time_offset = 0; time_offset <= (2 * REAUTH_TIMESTEP);
+		time_offset += REAUTH_TIMESTEP ) {
+	hmac_hex = reauth_hmac_sha1( service, ref, login, ip_addr,
+					key, time_offset );
+	if ( strcmp( reauth_cookie, hmac_hex ) == 0 ) {
+	    valid = 1;
+	}
+    }
+
+    reauth_cookie_set( NULL );
+
+    return( valid );
 }
 
     static void
@@ -1234,6 +1349,20 @@ loggedin:
 	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
 	goto loginscreen;
     } else if ( !satisfied( ui.ui_factors, ufactorv )) {
+
+	if ( service != NULL && ref != NULL ) {
+	    scookie = service_find( service, matches, nmatch );
+	    if ( scookie && ( scookie->sl_flag & SL_REAUTH )) {
+		if ( satisfied( nfactorv, scookie->sl_factors )) {
+		    data = cosign_config_get( COSIGNREAUTHTOKENKEY );
+		    if ( data ) {
+			cookie = reauth_hmac_sha1( service, ref, ui.ui_login,
+						    ui.ui_ipaddr, data, 0 );
+			reauth_cookie_set( cookie );
+		    }
+		}
+	    }
+	}
 	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
 	goto loginscreen_moreauth;
     }
@@ -1301,9 +1430,13 @@ loggedin:
 		goto loginscreen;
 	    }
 	    if ( !satisfied( nfactorv, scookie->sl_factors )) {
-		sl[ SL_ERROR ].sl_data = "Please complete all required"
-			" fields to re-authenticate.";
-		goto loginscreen;
+		data = cosign_config_get( COSIGNREAUTHTOKENKEY );
+		if ( !reauth_cookie_valid( service, ref, ui.ui_login,
+			ui.ui_ipaddr, data )) {
+		    sl[ SL_ERROR ].sl_data = "Please complete all required"
+			    " fields to re-authenticate.";
+		    goto loginscreen;
+		}
 	    }
 	}
 

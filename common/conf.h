@@ -92,6 +92,7 @@ struct matchlist {
 #define COSIGNDBHASHLENKEY	"cosigndbhashlen"
 #define COSIGNSTRICTCHECKKEY	"cosignstrictcheck"
 #define COSIGNHTTPONLYCOOKIESKEY        "cosignhttponlycookies"
+#define COSIGNREAUTHTOKENKEY	"cosignreauthtoken"
 #define COSIGNDAEMONDEBUG       "cosigndaemondebug"
 
 #ifdef SQL_FRIEND
