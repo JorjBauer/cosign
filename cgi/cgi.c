@@ -1524,7 +1524,8 @@ loginscreen:
 	}
 	snprintf( new_cookie, sizeof( new_cookie ), "cosign=%s/%lu",
 		new_cookiebuf, tv.tv_sec );
-	printf( "Set-Cookie: %s; path=/; secure\n", new_cookie );
+	printf( "Set-Cookie: %s; path=/; secure%s\n",
+		new_cookie, httponly_cookies ? "; httponly" : "" );
 
 	if ( remote_user ) {
 	    if ( server_port != 443 ) {
