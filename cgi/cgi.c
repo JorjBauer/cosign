@@ -19,6 +19,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/crypto.h>
+#include <openssl/hmac.h>
 #include <snet.h>
 #include "cgi.h"
 #include "cosigncgi.h"
