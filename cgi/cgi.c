@@ -103,6 +103,8 @@ static struct subfile_list sl[] = {
         { '\0', 0, NULL },
 };
 
+static int	satisfied( char	*sv[], char *rv[] );
+
 /* 'in' is comma-separated; 'out' is space-separted. */
     static int
 implode_factors( const char *in, char *out, int out_length )
@@ -475,9 +477,10 @@ factor_push( char **factorv, char *newfactor )
  * are appended to the factor argv, and SL_REAUTH is set.
  */
     static int
-factor_set_dependencies( struct servicelist *svc, char *reqlist,
-	char *depsuffix )
+factor_set_dependencies( struct servicelist *svc, char *sfactorv[],
+	char *reqlist, char *depsuffix )
 {
+    char	*reqv[ COSIGN_MAXFACTORS ] = { NULL };
     char	*require, *rf, *sfx;
     char	*last = NULL;
     int		rc = -1;
@@ -501,7 +504,11 @@ factor_set_dependencies( struct servicelist *svc, char *reqlist,
 	    if ( factor_push( svc->sl_factors, rf ) == -1 ) {
 		goto cleanup;
 	    }
-	    svc->sl_flag |= SL_REAUTH;
+
+	    unsmash( reqlist, reqv );
+	    if ( !satisfied( sfactorv, reqv )) {
+		svc->sl_flag |= SL_REAUTH;
+	    }
 	}
     }
     rc = 0;
@@ -576,14 +583,19 @@ satisfied( char		*sv[], char *rv[] )
 		    rc |= COSIGN_FACTOR_REAUTH_FLAG;
 		    break;
 		}
-
+#ifdef notdef
 		if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 		    break;
 		}
+#endif /* notdef */
 	    }
 	}
-	if ( sv[ j ] == NULL || COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	if ( sv[ j ] == NULL ) {
 	    break;
+	} else if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	    if ( strcmp( rv[ i ], sv[ j ] ) != 0 ) {
+		break;
+	    }
 	}
     }
     if ( rv[ i ] != NULL ) {
@@ -951,6 +963,7 @@ main( int argc, char *argv[] )
 	if ( rfactors != NULL ) {
 	    if ( parasitic_suffix ) {
 		if ( factor_set_dependencies( scookie,
+					      ui.ui_factors,
 					      sl[ SL_RFACTOR ].sl_data,
 					      parasitic_suffix ) != 0 ) {
 		    fprintf( stderr, "failed to set factor dependencies from "
@@ -981,6 +994,7 @@ main( int argc, char *argv[] )
 
 	if ( !rebasic ) {
 	    if ( scookie->sl_flag & SL_REAUTH ) {
+		fprintf( stderr, "reauth required for %s\n", service );
 		/* ui struct populated by cosign_check if good cookie */
 		goto loginscreen;
 	    }
@@ -1000,11 +1014,16 @@ main( int argc, char *argv[] )
 	if ( !satisfied( ui.ui_factors, ufactorv ) ||
 		(!( rc = satisfied( ui.ui_factors, rfactorv )) ||
 		COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
-	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc ) &&
+			!( rc & COSIGN_FACTOR_SATISFIED_FLAG )) {
 		scookie->sl_flag |= SL_REAUTH;
-	    } 
-	    sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
-	    goto loginscreen;
+		sl[ SL_ERROR ].sl_data = "Additional authentication "
+					 "is required.";
+		goto loginscreen;
+	    } else {
+		sl[ SL_ERROR ].sl_data = "Additional authentication "
+					 "is required.";
+	    }
 	}
 
 	imploded_factors[ 0 ] = '\0';
@@ -1345,10 +1364,16 @@ loggedin:
     if ( !(rc = satisfied( ui.ui_factors, rfactorv )) ||
 	    COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
 	if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
-	    reauth = 1;
+	    if ( !( rc & COSIGN_FACTOR_SATISFIED_FLAG )) {
+		reauth = 1;
+		sl[ SL_ERROR ].sl_data = "Additional authentication "
+					 "is required.";
+		goto loginscreen;
+	    }
+	} else {
+	    sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
+	    goto loginscreen;
 	}
-	sl[ SL_ERROR ].sl_data = "Additional authentication is required.";
-	goto loginscreen;
     } else if ( !satisfied( ui.ui_factors, ufactorv )) {
 
 	if ( service != NULL && ref != NULL ) {
@@ -1409,6 +1434,7 @@ loggedin:
 
 	if ( parasitic_suffix && cl[ CL_RFACTOR ].cl_data ) {
 	    if ( factor_set_dependencies( scookie,
+					  ui.ui_factors,
 					  (char *)cl[ CL_RFACTOR ].cl_data,
 					  parasitic_suffix ) != 0 ) {
 		fprintf( stderr, "failed to set factor dependencies\n" );
