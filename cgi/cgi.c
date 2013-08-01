@@ -1014,15 +1014,17 @@ main( int argc, char *argv[] )
 	if ( !satisfied( ui.ui_factors, ufactorv ) ||
 		(!( rc = satisfied( ui.ui_factors, rfactorv )) ||
 		COSIGN_FACTOR_REAUTH_REQUIRED( rc ))) {
-	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc ) &&
-			!( rc & COSIGN_FACTOR_SATISFIED_FLAG )) {
-		scookie->sl_flag |= SL_REAUTH;
-		sl[ SL_ERROR ].sl_data = "Additional authentication "
-					 "is required.";
-		goto loginscreen;
+	    if ( COSIGN_FACTOR_REAUTH_REQUIRED( rc )) {
+		if ( !( rc & COSIGN_FACTOR_SATISFIED_FLAG )) {
+		    scookie->sl_flag |= SL_REAUTH;
+		    sl[ SL_ERROR ].sl_data = "Additional authentication "
+					     "is required.";
+		    goto loginscreen;
+		}
 	    } else {
 		sl[ SL_ERROR ].sl_data = "Additional authentication "
 					 "is required.";
+		goto loginscreen;
 	    }
 	}
 
