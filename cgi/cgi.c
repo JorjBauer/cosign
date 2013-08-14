@@ -1598,8 +1598,7 @@ loginscreen:
 		 * ufactors and rfactors that haven't yet been satisfied,
 		 * but aren't in sl_factors still ought to be in SL_RFACTOR.
 		 */
-		unsmash( rfactors, rfactorv );
-		sl[ SL_RFACTOR ].sl_data = doublesmash( rfactorv, scookie->sl_factors );
+		sl[ SL_RFACTOR ].sl_data = smash( scookie->sl_factors );
 	    } else {
 		/*
 		 * Might be better to let the user pick a factor.
