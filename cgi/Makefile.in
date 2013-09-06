@@ -56,8 +56,11 @@ cgi.o:	cgi.c
 	-D_COSIGN_TMPL_DIR=\"${COSIGNTMPLDIR}\" \
 	-c cgi.c
 
-cosign.cgi: cgi.o login.o factor.o $(OBJ)
-	${CC} ${CFLAGS} -o cosign.cgi cgi.o login.o factor.o $(OBJ) $(LDFLAGS)
+cosign.cgi: cgi.o login.o factor.o uservar.o $(OBJ)
+	${CC} ${CFLAGS} -o cosign.cgi cgi.o login.o factor.o uservar.o $(OBJ) $(LDFLAGS)
+
+uservar.o:	uservar.c
+	${CC} ${CFLAGS} -c uservar.c
 
 logout.o:	logout.c
 	${CC} ${CFLAGS} \
