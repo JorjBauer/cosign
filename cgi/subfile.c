@@ -68,7 +68,7 @@ substitute_subfilevar( int c, struct subfile_list *sl )
   return 0;
 }
 
-/* If not found in the list, do not emit anything. */
+/* If not found in the list, emit 'null'. */
     static void
 emit_uservar( char *varname, struct uservarlist *uv )
 {
@@ -80,6 +80,7 @@ emit_uservar( char *varname, struct uservarlist *uv )
 
     uv = uv->uv_next;
   }
+  printf("null");
 }
 
 
