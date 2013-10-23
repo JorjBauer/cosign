@@ -136,7 +136,7 @@ execfactor( struct factorlist *fl, struct cgi_list cl[], char *login,
 	exit( 1 );
     }
 
-    tv.tv_sec = 10;
+    tv.tv_sec = 60;
     tv.tv_usec = 0;
     while (( line = snet_getline( sn_r, &tv )) != NULL ) {
 	if ( strchr( line, '=' ) == NULL ) {
