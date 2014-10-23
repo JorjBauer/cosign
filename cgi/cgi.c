@@ -31,6 +31,8 @@
 #include "mkcookie.h"
 #include "uservar.h"
 
+#include "ssl_mutex_app.h"
+
 #define SERVICE_MENU	"/services/"
 #define LOOPWINDOW      30 
 #define MAXLOOPCOUNT	5        /* UPenn: reduced to 5 */
@@ -694,6 +696,8 @@ main( int argc, char *argv[] )
 	fprintf( stderr, "usage: %s [-V]\n", argv[ 0 ] );
 	exit( 1 );
     }
+
+    SSL_MUTEX_INIT;
 
     if ( cosign_config( cosign_conf ) < 0 ) {
 	fprintf( stderr, "Couldn't read %s\n", cosign_conf );

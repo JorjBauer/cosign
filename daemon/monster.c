@@ -31,6 +31,8 @@
 #include "conf.h"
 #include "srvcookiefs.h"
 
+#include "ssl_mutex_app.h"
+
 /* idle_cache = (grey+idle) from cosignd, plus loggedout_cache here */
 int		idle_cache = (60 * 30) +  (60 * 60 * 2) + (60 * 60 * 2);
 int		interval = 60 * 2;
@@ -123,6 +125,7 @@ main( int ac, char **av )
 	prog++;
     }
 
+    SSL_MUTEX_INIT;
 
 #define MONSTER_OPTS "c:dF:fh:H:i:I:l:L:p:Vx:y:z:"
     while (( c = getopt( ac, av, MONSTER_OPTS )) != EOF ) {

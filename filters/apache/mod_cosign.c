@@ -36,6 +36,8 @@
 #include "cosignpaths.h"
 #include "log.h"
 
+#include "ssl_mutex_app.h"
+
 #define COSIGN_MERGE_TYPE_COMMAND	0
 #define COSIGN_MERGE_TYPE_REQUEST	1
 
@@ -104,6 +106,8 @@ cosign_create_server_config( pool *p, server_rec *s )
 cosign_init( server_rec *s, pool *p )
 {
     extern char	*cosign_version;
+
+    SSL_MUTEX_INIT;
 
     cosign_log( APLOG_NOTICE, s, "mod_cosign: version %s initialized.",
 	    cosign_version );

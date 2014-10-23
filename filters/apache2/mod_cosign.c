@@ -41,6 +41,7 @@
 #include "cosign.h"
 #include "cosignpaths.h"
 #include "log.h"
+#include "ssl_mutex_app.h"
 
 #define COSIGN_MERGE_TYPE_COMMAND	0
 #define COSIGN_MERGE_TYPE_REQUEST	1
@@ -122,6 +123,8 @@ cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 		     "mod_cosign is not thread-safe.");
         return DONE;
     }
+
+    SSL_MUTEX_INIT;
 
     return OK;
 }
