@@ -21,6 +21,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <ap_mpm.h>
 
 #ifdef KRB
 #ifdef GSS
@@ -107,6 +108,22 @@ cosign_create_dir_config( apr_pool_t *p, char *path )
 cosign_create_server_config( apr_pool_t *p, server_rec *s )
 {
     return( cosign_create_config( p ));
+}
+
+    static int
+cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
+{
+    int threaded_mpm;
+    ap_mpm_query(AP_MPMQ_IS_THREADED, &threaded_mpm);
+
+    if(threaded_mpm) {
+	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, 0, 
+		     "Apache is running a threaded MPM; this version of "
+		     "mod_cosign is not thread-safe.");
+        return DONE;
+    }
+
+    return OK;
 }
 
     static int
@@ -1325,6 +1342,7 @@ cosign_register_hooks( apr_pool_t *p )
     static const char * const other_mods[] = { "mod_access.c", NULL };
 #endif /* HAVE_MOD_AUTHZ_HOST */
 
+    ap_hook_pre_config( cosign_pre_config, NULL, NULL, APR_HOOK_MIDDLE );
     ap_hook_post_config( cosign_init, NULL, NULL, APR_HOOK_MIDDLE );
     ap_hook_handler( cosign_handler, NULL, NULL, APR_HOOK_MIDDLE );
     ap_hook_access_checker( cosign_auth, NULL, other_mods, APR_HOOK_MIDDLE );
