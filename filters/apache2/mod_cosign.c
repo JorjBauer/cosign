@@ -197,6 +197,7 @@ cosign_handler( request_rec *r )
     int			rc, cv;
     struct sinfo	si;
     struct timeval	now;
+    char		*strtok_last = NULL;
 
     if ( !r->handler || strcmp( r->handler, "cosign" ) != 0 ) {
 	return( DECLINED );
@@ -234,7 +235,7 @@ cosign_handler( request_rec *r )
     /* get cookie from query string */
     pair = ap_getword( r->pool, &qstr, '&' );
     if ( strncasecmp( pair, "cosign-", strlen( "cosign-" )) != 0 ) {
-	( void )strtok((char *)pair, "=" );
+	( void )apr_strtok((char *)pair, "=", &strtok_last );
 	cosign_log( APLOG_NOTICE, r->server,
 			"mod_cosign: invalid service \"%s\"", pair );
 	goto validation_failed;
@@ -428,6 +429,7 @@ cosign_auth( request_rec *r )
     struct sinfo	si;
     cosign_host_config	*cfg;
     struct timeval	now;
+    char                *strtok_last = NULL;
 #ifdef GSS
     OM_uint32		minor_status;
 #endif /* GSS */
@@ -492,8 +494,8 @@ cosign_auth( request_rec *r )
     my_cookie = apr_psprintf( r->pool, "%s=%s", cookiename, pair );
     /* if it's a stale cookie, give out a new one */
     gettimeofday( &now, NULL );
-    (void)strtok( my_cookie, "/" );
-    if (( misc = strtok( NULL, "/" )) != NULL ) {
+    (void)apr_strtok( my_cookie, "/", &strtok_last );
+    if (( misc = apr_strtok( NULL, "/", &strtok_last )) != NULL ) {
         cookietime = atoi( misc );
     }
     if (( cookietime > 0 ) && ( now.tv_sec - cookietime ) > cfg->expiretime ) {
