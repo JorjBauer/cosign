@@ -174,10 +174,9 @@ cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
     ap_mpm_query(AP_MPMQ_IS_THREADED, &threaded_mpm);
 
     if(threaded_mpm) {
-	ap_log_error(APLOG_MARK, APLOG_CRIT, 0, 0, 
+	ap_log_error(APLOG_MARK, APLOG_WARNING, 0, 0, 
 		     "Apache is running a threaded MPM; this version of "
-		     "mod_cosign is not thread-safe.");
-        return DONE;
+		     "mod_cosign contains experimental thread support.");
     }
 
     SSL_MUTEX_INIT;
