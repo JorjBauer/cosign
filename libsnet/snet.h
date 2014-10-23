@@ -9,6 +9,8 @@
 #define ___P(x)		()
 #endif /* __STDC__ */
 
+#include <pthread.h>
+
 typedef struct {
     int			sn_fd;
     char		*sn_rbuf;
@@ -22,6 +24,9 @@ typedef struct {
     int			sn_flag;
     struct timeval	sn_read_timeout;
     struct timeval	sn_write_timeout;
+
+    pthread_mutex_t     mutex;
+
 #ifdef HAVE_LIBSSL
     void		*sn_ssl;
 #endif /* HAVE_LIBSSL */
@@ -55,7 +60,6 @@ char	*snet_getline ___P(( SNET *, struct timeval * ));
 char	*snet_getline_multi ___P(( SNET *, void (*)(char *),
 		struct timeval * ));
 void	snet_timeout ___P(( SNET *, int, struct timeval * ));
-int	snet_hasdata ___P(( SNET * ));
 ssize_t	snet_read ___P(( SNET *, char *, size_t, struct timeval * ));
 ssize_t	snet_write ___P(( SNET *, char *, size_t, struct timeval * ));
 #ifdef HAVE_LIBSSL
