@@ -38,6 +38,9 @@
 #include "cosign.h"
 #include "cosignproto.h"
 
+#define THREADED_SUPPORT
+#define min(a,b) ((a) < (b) ? (a) : (b))
+
 #define IDLETIME	60
 
     int
@@ -236,6 +239,20 @@ storecookie:
 	}
     }
 
+#ifdef THREADED_SUPPORT
+    // Thread-specific hack to avoid a race condition
+    pthread_t ptid = pthread_self();
+    uint64_t threadId = 0;
+    memcpy(&threadId, &ptid, min(sizeof(threadId), sizeof(ptid)));
+    if ( snprintf( tmppath, sizeof( tmppath ), "%s/%x%x.%i.%llx", cfg->filterdb,
+	     (int)tv.tv_sec, (int)tv.tv_usec, (int)getpid(), threadId) >=
+	    sizeof( tmppath )) {
+	cosign_log( APLOG_ERR, s, "mod_cosign: cosign_cookie_valid: "
+		"tmppath too long" );
+	return( COSIGN_ERROR );
+    }
+
+#else
     if ( snprintf( tmppath, sizeof( tmppath ), "%s/%x%x.%i", cfg->filterdb,
 	    (int)tv.tv_sec, (int)tv.tv_usec, (int)getpid()) >=
 	    sizeof( tmppath )) {
@@ -243,10 +260,11 @@ storecookie:
 		"tmppath too long" );
 	return( COSIGN_ERROR );
     }
+#endif
 
     if (( fd = open( tmppath, O_CREAT|O_EXCL|O_WRONLY, 0644 )) < 0 ) {
 	cosign_log( APLOG_ERR, s, "mod_cosign: cosign_cookie_valid: "
-		"could not open %s", tmppath );
+		    "could not open %s [0x%lX]", tmppath, cfg );
 	perror( tmppath );
 	return( COSIGN_ERROR );
     }

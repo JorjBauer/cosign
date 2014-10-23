@@ -6,6 +6,7 @@
 
 #include "fbase64.h"
 #include "mkcookie.h"
+#include "ssl_mutex.h"
 
 static char	valid_tab[ 256 ] = {
  0, 0, 0, 0, 0, 0, 0, 0,
@@ -93,9 +94,12 @@ mkcookie( int len, char *buf )
 	return( -1 );
     }
 
+    SSL_MUTEX_LOCK;
     if ( RAND_bytes( tmp, randbytes ) != 1 ) {
+	SSL_MUTEX_UNLOCK;
         return( -2 );
     }
+    SSL_MUTEX_UNLOCK;
 
     fbase64_e( tmp, randbytes, buf );
     return( 0 );

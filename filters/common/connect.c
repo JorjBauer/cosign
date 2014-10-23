@@ -43,6 +43,8 @@
 #include "rate.h"
 #include "log.h"
 
+#include "ssl_mutex.h"
+
 #ifndef MIN
 #define MIN(a,b)        ((a)<(b)?(a):(b))
 #endif 
@@ -518,6 +520,8 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     struct connlist	**cur, *tmp;
     int			rc = COSIGN_ERROR, retry = 0;
 
+    NONSSL_MUTEX_LOCK;
+
     /* use connection, then shuffle if there is a problem
      * what happens if they are all bad?
      */
@@ -580,8 +584,10 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     }
 
     if ( retry ) {
+      NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_RETRY );
     }
+    NONSSL_MUTEX_UNLOCK;
     return( COSIGN_ERROR );
 
 done:
@@ -596,6 +602,7 @@ done:
 	scookie = *rekey;
     }
     if ( rc == COSIGN_LOGGED_OUT ) {
+        NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_RETRY );
     } else {
 	if (( first ) && ( cfg->proxy == 1 )) {
@@ -614,6 +621,7 @@ done:
 	    }
 	}
 #endif /* KRB */
+	NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_OK );
     }
 }
