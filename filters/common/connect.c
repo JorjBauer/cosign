@@ -43,6 +43,8 @@
 #include "rate.h"
 #include "log.h"
 
+#include "ssl_mutex.h"
+
 #ifndef MIN
 #define MIN(a,b)        ((a)<(b)?(a):(b))
 #endif 
@@ -565,10 +567,13 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     struct connlist	**cur, *tmp;
     int			rc = COSIGN_ERROR, retry = 0;
 
+    NONSSL_MUTEX_LOCK;
+
     if ( connlist_create( &cfg->cl, cfg->host, cfg->port, s ) != 0 ) {
 	cfg->cl = NULL;
 	cosign_log( APLOG_ERR, s, "cosign_check_cookie: "
 		    "connlist_create: rebuild for %s failed", cfg->host );
+	NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_ERROR );
     }
 
@@ -605,8 +610,10 @@ cosign_check_cookie( char *scookie, char **rekey, struct sinfo *si,
     connlist_destroy( &cfg->cl, s );
 
     if ( retry ) {
+      NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_RETRY );
     }
+    NONSSL_MUTEX_UNLOCK;
     return( COSIGN_ERROR );
 
 done:
@@ -616,6 +623,7 @@ done:
 	scookie = *rekey;
     }
     if ( rc == COSIGN_LOGGED_OUT ) {
+        NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_RETRY );
     } else {
 	if (( first ) && ( cfg->proxy == 1 )) {
@@ -634,6 +642,7 @@ done:
 	    }
 	}
 #endif /* KRB */
+	NONSSL_MUTEX_UNLOCK;
 	return( COSIGN_OK );
     }
 }
