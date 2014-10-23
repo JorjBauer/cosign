@@ -32,6 +32,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <openssl/crypto.h>
 
 #include <snet.h>
 
@@ -111,9 +112,64 @@ cosign_create_server_config( apr_pool_t *p, server_rec *s )
     return( cosign_create_config( p ));
 }
 
+    static void
+ssl_lock_handler(int mode, int n, const char *file, int line)
+{
+    if (mode & CRYPTO_LOCK) {
+	SSL_MUTEX_LOCK_BUF(n);
+    } else {
+	SSL_MUTEX_UNLOCK_BUF(n);
+    }
+}
+
+    static unsigned long
+ssl_id_function(void)
+{
+    return ((unsigned long) pthread_self()); /* FIXME: abstract this pthread-specific call */
+}
+
+    static struct CRYPTO_dynlock_value *
+ssl_dynlock_create(const char *file, int line) 
+{
+    struct CRYPTO_dynlock_value *value;
+
+    value = (struct CRYPTO_dynlock_value *)
+        malloc(sizeof(struct CRYPTO_dynlock_value));
+    if (!value) {
+        goto err;
+    }
+    pthread_mutex_init(&value->mutex, NULL); /* FIXME: abstract this pthread-specific call */
+
+    return value;
+
+ err:
+    return NULL;
+}
+
+    static void
+ssl_dynlock_lock(int mode, struct CRYPTO_dynlock_value *l,
+		 const char *file, int line)
+{
+    if (mode & CRYPTO_LOCK) {
+        pthread_mutex_lock(&l->mutex);
+    } else {
+        pthread_mutex_unlock(&l->mutex);
+    }
+}
+
+
+    static void
+ssl_dynlock_destroy(struct CRYPTO_dynlock_value *l,
+		    const char *file, int line)
+{
+    pthread_mutex_destroy(&l->mutex);
+    free(l);
+}
+
     static int
 cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 {
+    int i;
     int threaded_mpm;
     ap_mpm_query(AP_MPMQ_IS_THREADED, &threaded_mpm);
 
@@ -125,6 +181,17 @@ cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
     }
 
     SSL_MUTEX_INIT;
+
+    mutex_buf = malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t)); /* FIXME: abstract pthread_mutex_t */
+    for (i=0; i<CRYPTO_num_locks(); i++) {
+	SSL_MUTEX_INIT_BUF(i);
+    }
+
+    CRYPTO_set_locking_callback(ssl_lock_handler);
+    CRYPTO_set_id_callback(ssl_id_function);
+    CRYPTO_set_dynlock_create_callback(ssl_dynlock_create);
+    CRYPTO_set_dynlock_lock_callback(ssl_dynlock_lock);
+    CRYPTO_set_dynlock_destroy_callback(ssl_dynlock_destroy);
 
     return OK;
 }
