@@ -251,8 +251,8 @@ snet_writeftv( sn, tv, format, va_alist )
     int			is_long, is_longlong, is_unsigned, is_negative;
     char		*cur, *end;
 
-    char                *wbuf;
-    size_t              len;
+    char                *_wbuf;
+    size_t              _len;
 
 
 #ifdef __STDC__
@@ -469,12 +469,12 @@ modifier:
 
     va_end( vl );
 
-    wbuf = sn->buf;
-    len = cur - sn->sn_wbuf;
+    _wbuf = sn->sn_wbuf;
+    _len = cur - sn->sn_wbuf;
     
     pthread_mutex_unlock(&sn->mutex);
     
-    return( snet_write( sn, wbuf, len, tv ));
+    return( snet_write( sn, _wbuf, _len, tv ));
 }
 
 /*

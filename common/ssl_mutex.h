@@ -2,6 +2,7 @@
 
 /* Global ssl_mutex for things that are not in a specific SSL context */
 extern pthread_mutex_t ssl_mutex;
+extern pthread_mutex_t non_ssl_mutex;
 extern pthread_mutex_t *mutex_buf;
 
 #define SSL_MUTEX_INIT {pthread_mutex_init(&ssl_mutex, NULL); pthread_mutex_init(&non_ssl_mutex, NULL);}
