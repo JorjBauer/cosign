@@ -39,6 +39,7 @@
 #include "cosignproto.h"
 
 #define THREADED_SUPPORT
+#define min(a,b) ((a) < (b) ? (a) : (b))
 
 #define IDLETIME	60
 
