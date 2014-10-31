@@ -38,6 +38,8 @@
 #include "cosign.h"
 #include "cosignproto.h"
 
+#define THREADED_SUPPORT
+
 #define IDLETIME	60
 
 /* This is the mkcookiepath used by filters. It may or may not be the same
@@ -353,7 +355,7 @@ storecookie:
 	}
     }
 
-#if 1
+#ifdef THREADED_SUPPORT
     // Thread-specific hack to avoid a race condition
     pthread_t ptid = pthread_self();
     uint64_t threadId = 0;
@@ -378,7 +380,7 @@ storecookie:
 
     if (( fd = open( tmppath, O_CREAT|O_EXCL|O_WRONLY, 0644 )) < 0 ) {
 	cosign_log( APLOG_ERR, s, "mod_cosign: cosign_cookie_valid: "
-		"could not open %s", tmppath );
+		    "could not open %s [0x%lX]", tmppath, cfg );
 	perror( tmppath );
 	return( COSIGN_ERROR );
     }
