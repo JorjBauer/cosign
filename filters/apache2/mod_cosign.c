@@ -727,8 +727,6 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
     }
 
     cfg->filterdb = apr_pstrdup( pool, scfg->filterdb );
-    cosign_log( APLOG_ERR, params->server,
-		"could not open test setup: [2] 0x%X from 0x%X\n", cfg->filterdb, scfg->filterdb);
     cfg->hashlen =  scfg->hashlen;
     cfg->checkip =  scfg->checkip;
     cfg->proxydb = apr_pstrdup( pool, scfg->proxydb );
@@ -1024,9 +1022,8 @@ set_cosign_filterdb( cmd_parms *params, void *mconfig, const char *arg )
     } else {
         return( "CosignFilterDB not valid per dir!" );
     }
+
     cfg->filterdb = apr_pstrdup( params->pool, arg );
-    cosign_log( APLOG_ERR, params->server,
-		"could not open test setup: [1] 0x%X\n", cfg->filterdb);
     return( NULL );
 }
 
