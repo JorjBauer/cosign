@@ -381,7 +381,7 @@ storecookie:
 
     if (( fd = open( tmppath, O_CREAT|O_EXCL|O_WRONLY, 0644 )) < 0 ) {
 	cosign_log( APLOG_ERR, s, "mod_cosign: cosign_cookie_valid: "
-		    "could not open %s [0x%lX, '%s']", tmppath, cfg->filterdb, cfg->filterdb );
+		    "could not open %s [0x%lX]", tmppath, cfg );
 	perror( tmppath );
 	return( COSIGN_ERROR );
     }
