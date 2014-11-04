@@ -44,6 +44,8 @@
 #include "log.h"
 #include "ssl_mutex_app.h"
 
+#define min(a,b) ((a) < (b) ? (a) : (b))
+
 #define COSIGN_MERGE_TYPE_COMMAND	0
 #define COSIGN_MERGE_TYPE_REQUEST	1
 
