@@ -669,9 +669,6 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
     request_rec			*r;
     apr_pool_t			*pool;
 
-    server_rec *server = NULL;
-	cmd = (cmd_parms *)owner;
-
     /*
      * apache's built-in (request time) merge is for directories only or
      * servers only, there's no way to inherit server config in a directory.
@@ -682,14 +679,12 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
 	cmd = (cmd_parms *)owner;
 	scfg = (cosign_host_config *)ap_get_module_config(
 			    cmd->server->module_config, &cosign_module );
-	server = cmd->server;
 	if ( cmd->path == NULL ) {
 	    return( scfg );
 	}
 	pool = cmd->pool;
     } else if ( mtype == COSIGN_MERGE_TYPE_REQUEST ) {
 	r = (request_rec *)owner;
-	server = r->server;
 	scfg = (cosign_host_config *)ap_get_module_config(
 		r->server->module_config, &cosign_module);
 	if ( mconfig == NULL ) {
@@ -732,7 +727,7 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
     }
 
     cfg->filterdb = apr_pstrdup( pool, scfg->filterdb );
-    cosign_log( APLOG_ERR, server,
+    cosign_log( APLOG_ERR, params->server,
 		"could not open test setup: [2] 0x%X from 0x%X\n", cfg->filterdb, scfg->filterdb);
     cfg->hashlen =  scfg->hashlen;
     cfg->checkip =  scfg->checkip;
