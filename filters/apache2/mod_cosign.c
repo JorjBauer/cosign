@@ -53,6 +53,55 @@ static cosign_host_config	*cosign_merge_cfg( void *, void *, int );
 /* Our exported link to Apache. */
 module AP_MODULE_DECLARE_DATA cosign_module;
 
+    cosign_host_config *
+cosign_dup_cfg( apr_pool_t *p, cosign_host_config *in )
+{
+    cosign_host_config *cfg;
+    cfg = (cosign_host_config *)apr_pcalloc( p, sizeof( cosign_host_config ));
+
+    /* Walk every member of 'cfg' and dup thread-safe copies for each. */
+    cfg->host = apr_pstrdup( p, in->host );
+    cfg->service = apr_pstrdup( p, in->service );
+    cfg->siteentry = apr_pstrdup( p, in->siteentry );
+    cfg->reqfv = in->reqfv; /* FIXME: dup this */
+    cfg->reqfc = in->reqfc;
+    cfg->suffix = apr_pstrdup( p, in->suffix );
+    cfg->fake = in->fake;
+    cfg->public = in->public;
+    cfg->redirect = apr_pstrdup( p, in->redirect);
+    cfg->posterror = apr_pstrdup( p, in->posterror );
+    cfg->validref = apr_pstrdup( p, in->validref );
+    cfg->validredir = in->validredir;
+    cfg->referr = apr_pstrdup( p, in->referr );
+    cfg->validpreg = in->validpreg; /* FIXME: dup this */
+    cfg->port = in->port;
+    cfg->protect = in->protect;
+    cfg->configured = in->configured;
+    cfg->checkip = in->checkip;
+    cfg->cl = in->cl; /* FIXME: dup this */
+    cfg->ctx = in->ctx;
+    cfg->cert = apr_pstrdup( p, in->cert );
+    cfg->key = apr_pstrdup( p, in->key );
+    cfg->cadir = apr_pstrdup( p, in->cadir );
+    cfg->filterdb = apr_pstrdup( p, in->filterdb );
+    cfg->hashlen = in->hashlen;
+    cfg->proxydb = apr_pstrdup( p, in->proxydb );
+    cfg->tkt_prefix = apr_pstrdup( p, in->tkt_prefix );
+    cfg->http = in->http;
+    cfg->noappendport = in->noappendport;
+    cfg->proxy = in->proxy;
+    cfg->expiretime = in->expiretime;
+    cfg->authttl = in->authttl;
+#ifdef KRB
+#ifdef GSS
+    cfg->gss = in->gss;
+#endif /* GSS */
+    cfg->krbtkt = in->krbtkt;
+#endif /* KRB */
+
+    return cfg;
+}
+
     static void *
 cosign_create_config( apr_pool_t *p )
 {
@@ -294,7 +343,14 @@ cosign_handler( request_rec *r )
 
     cfg = (cosign_host_config *)ap_get_module_config( r->per_dir_config,
 							&cosign_module );
-    cfg = (cosign_host_config *)cosign_merge_cfg( r, cfg,
+
+    /* We have to make a local copy of cfg now so that we can override 
+     * settings at request-time. Otherwise we'll have multiple threads 
+     * simultaneously trying to update teh same ap_get_module_config().
+     */
+
+    cfg = (cosign_host_config *)cosign_merge_cfg( r, 
+				cosign_dup_cfg( r->pool, cfg ),
 				COSIGN_MERGE_TYPE_REQUEST );
     if ( !cfg->configured ) {
 	cosign_log( APLOG_ERR, r->server, "mod_cosign not configured" );
