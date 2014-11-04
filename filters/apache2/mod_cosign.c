@@ -739,14 +739,8 @@ cosign_merge_cfg( void *owner, void *mconfig, int mtype )
     }
 
     cfg->filterdb = apr_pstrdup( pool, scfg->filterdb );
-    {
-	pthread_t ptid = pthread_self();
-	uint64_t threadId = 0;
-	memcpy(&threadId, &ptid, min(sizeof(threadId), sizeof(ptid)));
-	cosign_log( APLOG_ERR, server,
-		    "'could not open' test setup: [2 thread 0x%X] 0x%X ('%s') from 0x%X ('%s')\n", threadId, cfg->filterdb, cfg->filterdb, scfg->filterdb, scfg->filterdb);
-    }
-
+    cosign_log( APLOG_ERR, server,
+		"'could not open' test setup: [2] 0x%X ('%s') from 0x%X ('%s')\n", cfg->filterdb, cfg->filterdb, scfg->filterdb, scfg->filterdb);
     cfg->hashlen =  scfg->hashlen;
     cfg->checkip =  scfg->checkip;
     cfg->proxydb = apr_pstrdup( pool, scfg->proxydb );
