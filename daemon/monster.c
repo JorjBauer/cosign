@@ -30,8 +30,10 @@
 #include "rate.h"
 #include "monster.h"
 #include "conf.h"
+#include "mutex.h"
 
-#include "ssl_mutex_app.h"
+cosign_mutex_t non_ssl_mutex = NULL;
+cosign_mutex_t ssl_mutex = NULL;
 
 /* idle_cache = (grey+idle) from cosignd, plus loggedout_cache here */
 int		idle_cache = (60 * 30) +  (60 * 60 * 2) + (60 * 60 * 2);
@@ -124,7 +126,8 @@ main( int ac, char **av )
 	prog++;
     }
 
-    SSL_MUTEX_INIT;
+    ssl_mutex = create_mutex();
+    non_ssl_mutex = create_mutex();
 
 #define MONSTER_OPTS "c:dF:fh:H:i:I:l:L:p:Vx:y:z:"
     while (( c = getopt( ac, av, MONSTER_OPTS )) != EOF ) {

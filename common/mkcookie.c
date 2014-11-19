@@ -6,7 +6,9 @@
 
 #include "fbase64.h"
 #include "mkcookie.h"
-#include "ssl_mutex.h"
+#include "mutex.h"
+
+extern cosign_mutex_t *ssl_mutex;
 
 static char	valid_tab[ 256 ] = {
  0, 0, 0, 0, 0, 0, 0, 0,
@@ -94,12 +96,12 @@ mkcookie( int len, char *buf )
 	return( -1 );
     }
 
-    SSL_MUTEX_LOCK;
+    lock_mutex(ssl_mutex);
     if ( RAND_bytes( tmp, randbytes ) != 1 ) {
-	SSL_MUTEX_UNLOCK;
+	unlock_mutex(ssl_mutex);
         return( -2 );
     }
-    SSL_MUTEX_UNLOCK;
+    unlock_mutex(ssl_mutex);
 
     fbase64_e( tmp, randbytes, buf );
     return( 0 );

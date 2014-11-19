@@ -42,7 +42,17 @@
 #include "cosign.h"
 #include "cosignpaths.h"
 #include "log.h"
-#include "ssl_mutex_app.h"
+#include "mutex.h"
+
+cosign_mutex_t non_ssl_mutex = NULL;
+cosign_mutex_t ssl_mutex = NULL;
+cosign_mutex_t *mutex_buf = NULL; /* dynamically allocated array of locks */
+
+struct CRYPTO_dynlock_value
+{
+    cosign_mutex_t mutex;
+};
+
 
 #define COSIGN_MERGE_TYPE_COMMAND	0
 #define COSIGN_MERGE_TYPE_REQUEST	1
@@ -97,7 +107,7 @@ cosign_dup_cfg( apr_pool_t *p, cosign_host_config *in )
     cfg->noappendport = in->noappendport;
     cfg->proxy = in->proxy;
     cfg->expiretime = in->expiretime;
-    cfg->authttl = in->authttl;
+    cfg->httponly_cookies = in->httponly_cookies;
 #ifdef KRB
 #ifdef GSS
     cfg->gss = in->gss;
@@ -178,9 +188,9 @@ cosign_create_server_config( apr_pool_t *p, server_rec *s )
 ssl_lock_handler(int mode, int n, const char *file, int line)
 {
     if (mode & CRYPTO_LOCK) {
-	SSL_MUTEX_LOCK_BUF(n);
+	lock_mutex(mutex_buf[n]);
     } else {
-	SSL_MUTEX_UNLOCK_BUF(n);
+	unlock_mutex(mutex_buf[n]);
     }
 }
 
@@ -200,8 +210,7 @@ ssl_dynlock_create(const char *file, int line)
     if (!value) {
         goto err;
     }
-    pthread_mutex_init(&value->mutex, NULL); /* FIXME: abstract this pthread-specific call */
-
+    value->mutex = create_mutex();
     return value;
 
  err:
@@ -213,9 +222,9 @@ ssl_dynlock_lock(int mode, struct CRYPTO_dynlock_value *l,
 		 const char *file, int line)
 {
     if (mode & CRYPTO_LOCK) {
-        pthread_mutex_lock(&l->mutex);
+	lock_mutex(l->mutex);
     } else {
-        pthread_mutex_unlock(&l->mutex);
+	unlock_mutex(l->mutex);
     }
 }
 
@@ -224,7 +233,7 @@ ssl_dynlock_lock(int mode, struct CRYPTO_dynlock_value *l,
 ssl_dynlock_destroy(struct CRYPTO_dynlock_value *l,
 		    const char *file, int line)
 {
-    pthread_mutex_destroy(&l->mutex);
+    destroy_mutex(l->mutex);
     free(l);
 }
 
@@ -241,11 +250,12 @@ cosign_pre_config(apr_pool_t *pconf, apr_pool_t *plog, apr_pool_t *ptemp)
 		     "mod_cosign contains experimental thread support.");
     }
 
-    SSL_MUTEX_INIT;
+    ssl_mutex = create_mutex();
+    non_ssl_mutex = create_mutex();
 
-    mutex_buf = malloc(CRYPTO_num_locks() * sizeof(pthread_mutex_t)); /* FIXME: abstract pthread_mutex_t */
+    mutex_buf = malloc(CRYPTO_num_locks() * sizeof(cosign_mutex_t));
     for (i=0; i<CRYPTO_num_locks(); i++) {
-	SSL_MUTEX_INIT_BUF(i);
+	mutex_buf[i] = create_mutex();
     }
 
     CRYPTO_set_locking_callback(ssl_lock_handler);
@@ -366,7 +376,9 @@ cosign_handler( request_rec *r )
 
     cfg = (cosign_host_config *)ap_get_module_config( r->per_dir_config,
 							&cosign_module );
-    cfg = (cosign_host_config *)cosign_merge_cfg( r, cfg,
+
+    cfg = (cosign_host_config *)cosign_merge_cfg( r,
+				cosign_dup_cfg( r->pool, cfg ),
 				COSIGN_MERGE_TYPE_REQUEST );
 
     if ( !cfg->configured ) {
@@ -911,7 +923,7 @@ set_cosign_allow_validation_redirect( cmd_parms *params,
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
 
     cfg->validredir = flag;
 
@@ -1378,7 +1390,7 @@ set_cosign_httponly_cookies( cmd_parms *params, void *mconfig, int flag )
 {
     cosign_host_config		*cfg;
 
-    cfg = cosign_merge_cfg( params, mconfig );
+    cfg = cosign_merge_cfg( params, mconfig, COSIGN_MERGE_TYPE_COMMAND );
     cfg->httponly_cookies = flag;
 
     return( NULL );
