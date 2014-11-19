@@ -38,7 +38,6 @@
 #include "cosign.h"
 #include "cosignproto.h"
 
-#define THREADED_SUPPORT
 #define min(a,b) ((a) < (b) ? (a) : (b))
 
 #define IDLETIME	60
@@ -239,8 +238,12 @@ storecookie:
 	}
     }
 
-#ifdef THREADED_SUPPORT
-    // Thread-specific hack to avoid a race condition
+#if ENABLE_PTHREAD_SUPPORT
+    /* Temp file naming is pretty bad here; we're using the timestamp. With 
+     * multiple threads running it's entirely possible that we'll collide.
+     * In the absence of a better temp-file-naming-generation mechanism,
+     * the short-term win is to add the thread ID to the pathname to avoid 
+     * collisions. */
     pthread_t ptid = pthread_self();
     uint64_t threadId = 0;
     memcpy(&threadId, &ptid, min(sizeof(threadId), sizeof(ptid)));
